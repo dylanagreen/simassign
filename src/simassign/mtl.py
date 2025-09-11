@@ -45,3 +45,10 @@ def update_mtl(mtl, tids_to_update, rng=np.random.default_rng(91701)):
     mtl.sort(["TARGETID", "TIMESTAMP"])
 
     return mtl
+
+def deduplicate_mtl(mtl):
+    # Flip to keep most recent element instead of first.
+    trunc_mtl = mtl[::-1]
+    _, ii = np.unique(trunc_mtl["TARGETID"], return_index=True)
+    trunc_mtl = trunc_mtl[ii]
+    return trunc_mtl
