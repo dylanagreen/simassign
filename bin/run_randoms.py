@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# Run mtl to split them into healpix ledgers.
+# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30
 # TODO proper docstring
+import argparse
 
 # Non-DESI Imports
 import numpy as np
@@ -26,21 +27,30 @@ sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import update_mtl, deduplicate_mtl
 
 
-# TODO: command line args.
-ra_min = 200
-ra_max = 210
-dec_min = 20
-dec_max = 30
+parser = argparse.ArgumentParser()
+parser.add_argument("--ramax", required=True, type=float, help="maximum RA angle to assign over.")
+parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle to assign over.")
+parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
+parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
+parser.add_argument("-o", "--outdir", required=True, type=str, help="where the save the mtl* and fba* output files.")
 
-area = (ra_max - ra_min) * np.degrees((np.sin(np.radians(dec_max)) - np.sin(np.radians(dec_min))))
+args = parser.parse_args()
+
+# TODO: command line args.
+# ra_min = 200
+# ra_max = 210
+# dec_min = 20
+# dec_max = 30
+
+area = (args.ramax - args.ramin) * np.degrees((np.sin(np.radians(args.decmax)) - np.sin(np.radians(args.decmin))))
 
 # Generate the random targets
 # TODO abstract to a function
 rng = np.random.default_rng(91701)
 n_obj = int(area * 1000) # 1000 / sq. deg * area
 
-ra = rng.uniform(ra_min, ra_max, size=n_obj)
-dec = rng.uniform(dec_min, dec_max, size=n_obj)
+ra = rng.uniform(args.ramin, args.ramax, size=n_obj)
+dec = rng.uniform(args.decmin, args.decmax, size=n_obj)
 
 print(f"Generated {n_obj} randoms...")
 
@@ -74,7 +84,10 @@ pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
 print(f"{len(pixlist)} HEALpix to write.")
 
-base_dir = Path(".")
+# TODO command line arg.
+base_dir = Path(args.outdir)
+
+# Run mtl to split them into healpix ledgers.
 make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
 
 hp_base = base_dir / "hp" / "main" / "dark"
@@ -106,8 +119,8 @@ for i in range(n_iter):
     # Booleans for determining which tiles to keep. We're just assuming dark time
     # since we want four passes, but the 7 pass program is only designed for
     # dark tiles anyway.
-    tiles_in_ra = (tiles["RA"] >= (ra_min - margin)) & (tiles["RA"] <= (ra_max + margin))
-    tiles_in_dec = (tiles["DEC"] >= (dec_min - margin)) & (tiles["DEC"] <= (dec_max + margin))
+    tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
+    tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
     this_pass = tiles["PASS"] == i # NOTE change this after testing.
     dark_tile = (tiles["PROGRAM"] == "DARK")
     # test_id = tiles["TILEID"] == 9682
@@ -134,8 +147,8 @@ for i in range(n_iter):
             str(base_dir / "targets.fits"),
         ]
 
-    args = parse_assign(params)
-    run_assign_full(args)
+    fba_args = parse_assign(params)
+    run_assign_full(fba_args)
 
     # Seems to me like the way to do update the global MTL is iterate over it
     # by healpix, and save the updated healpix if there are updated observations
@@ -158,6 +171,7 @@ for i in range(n_iter):
     mtl_all = update_mtl(mtl_all, assigned_tids)
 
     # Write updated MTLs by healpix.
+    # TODO only save these after the entire assigning loop?
     for hpx in np.array(np.unique(mtl_all["HEALPIX"])):
         print(f"Saving healpix {hpx}")
         this_hpx = mtl_all["HEALPIX"] == hpx
