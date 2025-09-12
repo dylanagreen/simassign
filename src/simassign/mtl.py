@@ -47,6 +47,24 @@ def update_mtl(mtl, tids_to_update, rng=np.random.default_rng(91701)):
     return mtl
 
 def deduplicate_mtl(mtl):
+    """
+    Remove duplicates entries per TARGETID from the given MTL.
+
+    Parameters
+    ----------
+    mtl : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table storing the MTL. The datamodel is
+        largely agnostic, but should include at least the columns TARGETID and
+        TIMESTAMP. This function assumes that the MTL is correctly sorted by
+        TARGETID, and then TIMESTAMP, such that subsequent entries for the same
+        TARGETID are later in time.
+
+    Returns
+    -------
+    :class:`~numpy.array` or `~astropy.table.Table`
+        MTL table with keeping only the most recent entry per TARGETID. Return
+        type will match input MTL type.
+    """
     # Flip to keep most recent element instead of first.
     trunc_mtl = mtl[::-1]
     _, ii = np.unique(trunc_mtl["TARGETID"], return_index=True)
