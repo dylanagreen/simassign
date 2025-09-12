@@ -33,6 +33,7 @@ parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle
 parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where the save the mtl* and fba* output files.")
+parser.add_argument("--n-pass", required=False, type=float, default=1, help="number of assignment passes to do.")
 
 args = parser.parse_args()
 
@@ -98,6 +99,12 @@ for mtl_loc in hp_base.glob("*.ecsv"):
     # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
     hpx = mtl_loc.name.split("-")[-1].split(".")[0]
     temp_tbl["HEALPIX"] = int(hpx)
+
+    # Update to custom target type.
+    # temp_tbl["DESI_TARGET"] = 2**22
+    temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
+
+
     temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
     mtl_loc.unlink()
 
@@ -113,7 +120,7 @@ tiles = load_tiles()
 tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 
-n_iter = 6
+n_iter = 1 # TODO command line arg.
 for i in range(n_iter):
     print(f"Beginning iteration {i}")
     # Booleans for determining which tiles to keep. We're just assuming dark time
@@ -168,6 +175,8 @@ for i in range(n_iter):
 
                 assigned_tids = np.concatenate([assigned_tids, tids])
     print(len(assigned_tids), len(np.unique(assigned_tids)))
+    # mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=True)
+
     mtl_all = update_mtl(mtl_all, assigned_tids)
 
     # Write updated MTLs by healpix.
