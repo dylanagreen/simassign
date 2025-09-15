@@ -25,6 +25,7 @@ from pathlib import Path
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import update_mtl, deduplicate_mtl
+from simassign.util import generate_random_objects
 
 
 parser = argparse.ArgumentParser()
@@ -33,27 +34,15 @@ parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle
 parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where the save the mtl* and fba* output files.")
-parser.add_argument("--n-pass", required=False, type=float, default=1, help="number of assignment passes to do.")
+parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
 
 args = parser.parse_args()
 
-# TODO: command line args.
-# ra_min = 200
-# ra_max = 210
-# dec_min = 20
-# dec_max = 30
-
-area = (args.ramax - args.ramin) * np.degrees((np.sin(np.radians(args.decmax)) - np.sin(np.radians(args.decmin))))
 
 # Generate the random targets
-# TODO abstract to a function
 rng = np.random.default_rng(91701)
-n_obj = int(area * 1000) # 1000 / sq. deg * area
-
-ra = rng.uniform(args.ramin, args.ramax, size=n_obj)
-dec = rng.uniform(args.decmin, args.decmax, size=n_obj)
-
-print(f"Generated {n_obj} randoms...")
+ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmaxrng, 1000)
+print(f"Generated {len(ra)} randoms...")
 
 tbl = Table()
 tbl["RA"] = ra
@@ -102,8 +91,7 @@ for mtl_loc in hp_base.glob("*.ecsv"):
 
     # Update to custom target type.
     # temp_tbl["DESI_TARGET"] = 2**22
-    temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
-
+    # temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
 
     temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
     mtl_loc.unlink()
@@ -120,8 +108,7 @@ tiles = load_tiles()
 tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 
-n_iter = 1 # TODO command line arg.
-for i in range(n_iter):
+for i in range(args.npass):
     print(f"Beginning iteration {i}")
     # Booleans for determining which tiles to keep. We're just assuming dark time
     # since we want four passes, but the 7 pass program is only designed for
@@ -177,7 +164,7 @@ for i in range(n_iter):
     print(len(assigned_tids), len(np.unique(assigned_tids)))
     # mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=True)
 
-    mtl_all = update_mtl(mtl_all, assigned_tids)
+    mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=True)
 
     # Write updated MTLs by healpix.
     # TODO only save these after the entire assigning loop?
