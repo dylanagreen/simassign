@@ -69,11 +69,11 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
 
             # Set priority for done targets.
             mtl_updates["PRIORITY"][this_target & is_complete] = targetmask["priorities"]["desi_mask"][name]["DONE"]
-            mtl_updates["TARGET_STATE"][this_target & is_complete] = "{name}|DONE"
+            mtl_updates["TARGET_STATE"][this_target & is_complete] = f"{name}|DONE"
 
             # lazily assume that the target class is correct and we want more zgood.
             mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
-            mtl_updates["TARGET_STATE"][this_target & was_unobs] = "{name}|MORE_ZGOOD"
+            mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
 
         # This is important for storing the history of the MTL
         mtl_updates["TIMESTAMP"] = get_utc_date("main")
