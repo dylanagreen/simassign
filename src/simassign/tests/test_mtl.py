@@ -10,8 +10,9 @@ class TestMTL(unittest.TestCase):
         tbl = Table()
         # Could use random objects here but we want this to be reproducible,
         # and for this test the location of the objects is entirely irrelevant.
-        tbl["RA"] = np.linspace(110, 120, 50)
-        tbl["DEC"] = np.linspace(10, 20, 50)
+        nobj = 50
+        tbl["RA"] = np.linspace(110, 120, nobj)
+        tbl["DEC"] = np.linspace(10, 20, nobj)
 
         observed_mtl = initialize_mtl(tbl)
 
@@ -24,3 +25,17 @@ class TestMTL(unittest.TestCase):
 
         # Using sets because the order does not matter
         self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))
+
+        self.assertEqual(list(observed_mtl["DESI_TARGET"]), [2**2] * nobj)
+        self.assertEqual(list(observed_mtl["MWS_TARGET"]), [0] * nobj)
+        self.assertEqual(list(observed_mtl["BGS_TARGET"]), [0] * nobj)
+
+        self.assertEqual(list(observed_mtl["PRIORITY"]), [3400] * nobj)
+
+        self.assertEqual(list(observed_mtl["NUMOBS"]), [0] * nobj)
+        self.assertEqual(list(observed_mtl["NUMOBS_INIT"]), [4] * nobj)
+        self.assertEqual(list(observed_mtl["NUMOBS_MORE"]), [4] * nobj)
+
+        # Subpriority is random but we should ensure that it's between zero and one.
+        self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] >= 0))
+        self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] <= 1))
