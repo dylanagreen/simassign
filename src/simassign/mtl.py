@@ -140,6 +140,7 @@ def initialize_mtl(base_tbl, save_dir=None):
     tbl["MWS_TARGET"] = 0
 
     # QSO: {UNOBS: 3400, MORE_ZGOOD: 3350, MORE_ZWARN: 3300, MORE_MIDZQSO: 100, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+    # Most of these will be rewritten by desitarget, they just need to exist.
     tbl["NUMOBS_INIT"] = 4
     tbl["PRIORITY_INIT"] = 3400
     tbl["PRIORITY"] = 3400
@@ -151,6 +152,9 @@ def initialize_mtl(base_tbl, save_dir=None):
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
     hpx = hp.ang2pix(nside, theta, phi, nest=True)
     pixlist = np.unique(hpx)
+
+    target_name = "LAE"
+    targetmask = load_target_yaml("targetmask.yaml")
 
     print(f"{len(pixlist)} HEALpix.")
     if save_dir is not None:
@@ -171,8 +175,8 @@ def initialize_mtl(base_tbl, save_dir=None):
             # Update to custom target type.
             # temp_tbl["DESI_TARGET"] = 2**22
             temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
-            temp_tbl["NUMOBS_INIT"] = 2
-            temp_tbl["NUMOBS_MORE"] = 2
+            temp_tbl["NUMOBS_INIT"] = targetmask["numobs"]["desi_mask"][target_name]
+            temp_tbl["NUMOBS_MORE"] = targetmask["numobs"]["desi_mask"][target_name]
 
             temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
             mtl_loc.unlink()
@@ -182,6 +186,11 @@ def initialize_mtl(base_tbl, save_dir=None):
         mtl_all.write(base_dir / "targets.fits", overwrite=True)
     else:
         mtl_all = make_mtl(tbl, "DARK")
+
+        # Destiny is ours to choose.
         mtl_all["TARGET_STATE"] = "LAE|UNOBS"
+        mtl_all["NUMOBS_INIT"] = targetmask["numobs"]["desi_mask"][target_name]
+        mtl_all["NUMOBS_MORE"] = targetmask["numobs"]["desi_mask"][target_name]
+
         mtl_all["HEALPIX"] = hpx
     return mtl_all
