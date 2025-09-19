@@ -1,3 +1,4 @@
+from datetime import datetime
 import time
 import unittest
 
@@ -78,25 +79,31 @@ class TestMTL(unittest.TestCase):
             # correctly orders the mtl by targetid and then by timestamp
             # so that the later row is a later timestamp
             tid_tbl = observed_mtl[observed_mtl["TARGETID"] == tid]
+
             # Every updated targetid should have two rows in the new MTL.
             self.assertEqual(len(tid_tbl), 2)
 
+            # Ensure that the later timestamp is actually later.
+            self.assertGreater(datetime.fromisoformat(tid_tbl[1]["TIMESTAMP"]),
+                               datetime.fromisoformat(tid_tbl[0]["TIMESTAMP"]))
+
             # NUMOBS should be increased by 1 in the updated row.
             # Should be equal to zero in the original row
-            self.assertEqual(tid_tbl["NUMOBS"][0] + 1, tid_tbl["NUMOBS"][1])
-            self.assertEqual(tid_tbl["NUMOBS"][0], 0)
+            self.assertEqual(tid_tbl[0]["NUMOBS"] + 1, tid_tbl[1]["NUMOBS"])
+            self.assertEqual(tid_tbl[0]["NUMOBS"], 0)
 
             # NUMOBS_MORE should be decreased by one relative to previous.
             # Original should match the targetmask yaml.
-            self.assertEqual(tid_tbl["NUMOBS_MORE"][0] - 1, tid_tbl["NUMOBS_MORE"][1])
-            self.assertEqual(tid_tbl["NUMOBS_MORE"][0],
+            self.assertEqual(tid_tbl[0]["NUMOBS_MORE"] - 1, tid_tbl[1]["NUMOBS_MORE"])
+            self.assertEqual(tid_tbl[0]["NUMOBS_MORE"],
                              self.targetmask["numobs"]["desi_mask"][name]) # TODO derive target type from row.
 
             # The priority both before and after the update should match
             # what's expected in our custom targetmask.
-            self.assertEqual(tid_tbl["PRIORITY"][0],
+            self.assertEqual(tid_tbl[0]["PRIORITY"],
                              self.targetmask["priorities"]["desi_mask"][name]["UNOBS"])
-            self.assertEqual(tid_tbl["PRIORITY"][1],
+            self.assertEqual(tid_tbl[1]["PRIORITY"],
                              self.targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"])
+
 
             # TODO more tests...
