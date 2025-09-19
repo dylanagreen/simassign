@@ -45,13 +45,15 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
         # details for each targetid
         mtl_updates = make_mtl(unique_mtl, "DARK", zcat=zcat, trimtozcat=True)
     else:
-        update_rows = np.isin(mtl["TARGETID"], tids_to_update)
-        mtl_updates = mtl[update_rows]
+        # Make sure we only update on the latest version of the MTL.
+        unique_mtl = deduplicate_mtl(mtl)
+        update_rows = np.isin(unique_mtl["TARGETID"], tids_to_update)
+        mtl_updates = unique_mtl[update_rows]
 
         # Iterate the number of observations
         mtl_updates["NUMOBS"] += 1
 
-        # Need to handle if we reovserved this extra times and don't want
+        # Need to handle if we reobserved this extra times and don't want
         # num obs more to go negative
         nobs_more = mtl_updates["NUMOBS_MORE"]
         mtl_updates["NUMOBS_MORE"] = np.where(nobs_more > 0, nobs_more - 1, 0)
@@ -168,7 +170,7 @@ def initialize_mtl(base_tbl, save_dir=None):
 
             # Update to custom target type.
             # temp_tbl["DESI_TARGET"] = 2**22
-            # temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
+            temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
             temp_tbl["NUMOBS_INIT"] = 2
             temp_tbl["NUMOBS_MORE"] = 2
 
@@ -179,6 +181,7 @@ def initialize_mtl(base_tbl, save_dir=None):
 
         mtl_all.write(base_dir / "targets.fits", overwrite=True)
     else:
-        mtl_all =  make_mtl(tbl, "DARK")
+        mtl_all = make_mtl(tbl, "DARK")
+        mtl_all["TARGET_STATE"] = "LAE|UNOBS"
         mtl_all["HEALPIX"] = hpx
     return mtl_all
