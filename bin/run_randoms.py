@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30
+# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-2exp/ --npass 9
+
+
 # TODO proper docstring
 import argparse
 
@@ -24,7 +26,7 @@ from pathlib import Path
 # TODO remove this at some point to point to a generic simassign import.
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
-from simassign.mtl import update_mtl, deduplicate_mtl
+from simassign.mtl import update_mtl, deduplicate_mtl, initialize_mtl
 from simassign.util import generate_random_objects
 
 
@@ -41,7 +43,7 @@ args = parser.parse_args()
 
 # Generate the random targets
 rng = np.random.default_rng(91701)
-ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmaxrng, 1000)
+ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, 1000)
 print(f"Generated {len(ra)} randoms...")
 
 tbl = Table()
@@ -50,7 +52,7 @@ tbl["DEC"] = dec
 
 # Minimum set of columns necessary for make_mtl:
 # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
-# For targetids we will just use the indices, they just need to be unique and non negative
+# For targetids we will use the indices, they just need to be unique and non negative
 tbl["TARGETID"] = np.arange(len(ra))
 
 # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
@@ -74,31 +76,10 @@ pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
 print(f"{len(pixlist)} HEALpix to write.")
 
-# TODO command line arg.
+mtl_all = initialize_mtl(tbl, args.outdir)
 base_dir = Path(args.outdir)
-
-# Run mtl to split them into healpix ledgers.
-make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
-
 hp_base = base_dir / "hp" / "main" / "dark"
-mtl_all = Table()
-for mtl_loc in hp_base.glob("*.ecsv"):
-    print(f"Moving {mtl_loc.name} to fits")
-    temp_tbl = Table.read(mtl_loc)
-    # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
-    hpx = mtl_loc.name.split("-")[-1].split(".")[0]
-    temp_tbl["HEALPIX"] = int(hpx)
 
-    # Update to custom target type.
-    # temp_tbl["DESI_TARGET"] = 2**22
-    # temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
-
-    temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
-    mtl_loc.unlink()
-
-    mtl_all = vstack([mtl_all, temp_tbl])
-
-mtl_all.write(base_dir / "targets.fits", overwrite=True)
 # Generate the tiling for this patch of sky.
 # Load frmo the FITs file to match fiber assign expectations.
 # tiles = Table(load_tiles(surveyops=False)) # NOTE: By default loads only tiles in the DESI footprint.
@@ -116,12 +97,13 @@ for i in range(args.npass):
     tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
     tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
     this_pass = tiles["PASS"] == i # NOTE change this after testing.
-    dark_tile = (tiles["PROGRAM"] == "DARK")
+    # dark_tile = tiles["PROGRAM"] == "DARK" if i <= 6 else tiles["PROGRAM"] == "DARK1B"
+    dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
     # test_id = tiles["TILEID"] == 9682
     tiles_subset = tiles[tiles_in_ra & tiles_in_dec & this_pass & dark_tile]
 
     tiles_subset["OBSCONDITIONS"] = obsconditions.mask("DARK") * np.ones(len(tiles_subset), dtype=int)
-    print(f"{len(tiles_subset)} tiles to run")
+    print(f"Iteration {i}: {len(tiles_subset)} tiles to run")
     tiles_subset.write(base_dir / "tiles.fits", overwrite=True)
 
     params = ["--rundate",
@@ -164,7 +146,7 @@ for i in range(args.npass):
     print(len(assigned_tids), len(np.unique(assigned_tids)))
     # mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=True)
 
-    mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=True)
+    mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=False)
 
     # Write updated MTLs by healpix.
     # TODO only save these after the entire assigning loop?
