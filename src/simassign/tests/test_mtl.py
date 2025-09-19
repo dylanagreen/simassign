@@ -51,7 +51,7 @@ class TestMTL(unittest.TestCase):
         tbl["DEC"] = np.linspace(10, 20, n_obj)
 
         init_mtl = initialize_mtl(tbl)
-        tids_to_update = observed_mtl["TARGETID"][0:n_update]
+        tids_to_update = init_mtl["TARGETID"][0:n_update]
         time.sleep(1) # Need the timestamps to differ, this code is too fast otherwise.
         observed_mtl = update_mtl(init_mtl, tids_to_update=tids_to_update, use_desitarget=False)
 
