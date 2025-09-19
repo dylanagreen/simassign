@@ -26,7 +26,7 @@ from pathlib import Path
 # TODO remove this at some point to point to a generic simassign import.
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
-from simassign.mtl import update_mtl, deduplicate_mtl, initialize_mtl
+from simassign.mtl import *
 from simassign.util import generate_random_objects
 
 
@@ -40,7 +40,8 @@ parser.add_argument("--npass", required=False, type=int, default=1, help="number
 
 args = parser.parse_args()
 
-
+targetmask = load_target_yaml("targetmask.yaml")
+print(f"Using {targetmask}")
 # Generate the random targets
 rng = np.random.default_rng(91701)
 ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, 1000)
@@ -50,26 +51,6 @@ tbl = Table()
 tbl["RA"] = ra
 tbl["DEC"] = dec
 
-# Minimum set of columns necessary for make_mtl:
-# TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
-# For targetids we will use the indices, they just need to be unique and non negative
-tbl["TARGETID"] = np.arange(len(ra))
-
-# TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
-# In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
-tbl["DESI_TARGET"] = 2**2
-
-# These two are unused but necessary to exist for mtl
-tbl["BGS_TARGET"] = 0
-tbl["MWS_TARGET"] = 0
-
-tbl["NUMOBS_INIT"] = 4
-tbl["PRIORITY_INIT"] = 3400
-tbl["PRIORITY"] = 3400
-
-# QSO: {UNOBS: 3400, MORE_ZGOOD: 3350, MORE_ZWARN: 3300, MORE_MIDZQSO: 100, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
-tbl["SUBPRIORITY"] = rng.uniform(size=len(ra))
-
 nside = 64
 theta, phi = np.radians(90 - dec), np.radians(ra)
 pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
@@ -77,6 +58,8 @@ pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 print(f"{len(pixlist)} HEALpix to write.")
 
 mtl_all = initialize_mtl(tbl, args.outdir)
+
+# Directories for later
 base_dir = Path(args.outdir)
 hp_base = base_dir / "hp" / "main" / "dark"
 
@@ -91,9 +74,10 @@ margin = tile_rad - 0.2
 
 for i in range(args.npass):
     print(f"Beginning iteration {i}")
-    # Booleans for determining which tiles to keep. We're just assuming dark time
-    # since we want four passes, but the 7 pass program is only designed for
-    # dark tiles anyway.
+    # Booleans for determining which tiles to keep.
+    # Margin makes sure we don't end up with tiles that are "in bounds"
+    # but because of the circular shape are off the corner of the
+    # region and don't actually cover any of the targets (which crashes fiberassign)
     tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
     tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
     this_pass = tiles["PASS"] == i # NOTE change this after testing.
