@@ -72,14 +72,13 @@ class TestMTL(unittest.TestCase):
         # There should be at least 50 + 20 rows (50 original, 20 updated)
         self.assertEqual(len(observed_mtl), n_obj + n_update)
 
-        # Everything is an LAE for now.
-        name = "LAE"
         for tid in tids_to_update:
             # Indices in this loop based on the assumption that update_mtl
             # correctly orders the mtl by targetid and then by timestamp
             # so that the later row is a later timestamp
             tid_tbl = observed_mtl[observed_mtl["TARGETID"] == tid]
 
+            name = tid_tbl[0]["TARGET_STATE"].split("|")[0]
             # Every updated targetid should have two rows in the new MTL.
             self.assertEqual(len(tid_tbl), 2)
 
@@ -100,10 +99,12 @@ class TestMTL(unittest.TestCase):
 
             # The priority both before and after the update should match
             # what's expected in our custom targetmask.
-            self.assertEqual(tid_tbl[0]["PRIORITY"],
-                             self.targetmask["priorities"]["desi_mask"][name]["UNOBS"])
-            self.assertEqual(tid_tbl[1]["PRIORITY"],
-                             self.targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"])
+            for i in [0, 1]:
+                target_state = tid_tbl[i]["TARGET_STATE"].split("|")[1]
+                nobs = tid_tbl[i]["NUMOBS_MORE"]
+                print(f"{tid} State {i} {target_state} {nobs}")
+                self.assertEqual(tid_tbl[i]["PRIORITY"],
+                                self.targetmask["priorities"]["desi_mask"][name][target_state])
 
     def test_double_update_mtl_nozcat(self):
         tbl = Table()

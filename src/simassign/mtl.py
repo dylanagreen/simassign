@@ -71,13 +71,15 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
 
             print(f"update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
 
+            # lazily assume that the target class is correct and we want more zgood.
+            # Do this before is_complete so that is_Complete overrides in the
+            # case of 1 requested exposure.
+            mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
+            mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
+
             # Set priority for done targets.
             mtl_updates["PRIORITY"][this_target & is_complete] = targetmask["priorities"]["desi_mask"][name]["DONE"]
             mtl_updates["TARGET_STATE"][this_target & is_complete] = f"{name}|DONE"
-
-            # lazily assume that the target class is correct and we want more zgood.
-            mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
-            mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
 
         # This is important for storing the history of the MTL
         mtl_updates["TIMESTAMP"] = get_utc_date("main")
