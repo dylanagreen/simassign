@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-2exp/ --npass 9
+# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-200/ --npass 50 --density 200
 
 
 # TODO proper docstring
@@ -27,7 +27,7 @@ from pathlib import Path
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import *
-from simassign.util import generate_random_objects
+from simassign.util import generate_random_objects, rotate_tiling
 
 
 parser = argparse.ArgumentParser()
@@ -37,6 +37,7 @@ parser.add_argument("--decmax", required=True, type=float, help="maximum DEC ang
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where the save the mtl* and fba* output files.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
+parser.add_argument("--density", required=False, type=int, default=1, help="number density of targets per square degree.")
 
 args = parser.parse_args()
 
@@ -44,7 +45,7 @@ targetmask = load_target_yaml("targetmask.yaml")
 print(f"Using {targetmask}")
 # Generate the random targets
 rng = np.random.default_rng(91701)
-ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, 1000)
+ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
 print(f"Generated {len(ra)} randoms...")
 
 tbl = Table()
@@ -64,38 +65,46 @@ base_dir = Path(args.outdir)
 hp_base = base_dir / "hp" / "main" / "dark"
 
 # Generate the tiling for this patch of sky.
-# Load frmo the FITs file to match fiber assign expectations.
+# Load from the FITs file to match fiber assign expectations.
 # tiles = Table(load_tiles(surveyops=False)) # NOTE: By default loads only tiles in the DESI footprint.
-tiles = load_tiles()
+# tiles = load_tiles()
+
+# Load the geometry superset to get the tiling of the entire sky.
+tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
+tiles = Table(tiles)
+
+# This ensures we only get one tiling of the sky to use as a base.
+zero_pass = tiles["PASS"] == 0
+dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
+base_tiles = tiles[zero_pass & dark_tile]
+
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
 tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 
-for i in range(args.npass):
-    print(f"Beginning iteration {i}")
+for i in range(1, args.npass + 1):
+    print(f"Beginning iteration {i} by generating tiling...")
+    tiles = rotate_tiling(base_tiles, i)
     # Booleans for determining which tiles to keep.
     # Margin makes sure we don't end up with tiles that are "in bounds"
     # but because of the circular shape are off the corner of the
     # region and don't actually cover any of the targets (which crashes fiberassign)
     tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
     tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-    this_pass = tiles["PASS"] == i # NOTE change this after testing.
-    # dark_tile = tiles["PROGRAM"] == "DARK" if i <= 6 else tiles["PROGRAM"] == "DARK1B"
-    dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
-    # test_id = tiles["TILEID"] == 9682
-    tiles_subset = tiles[tiles_in_ra & tiles_in_dec & this_pass & dark_tile]
+    tiles_subset = tiles[tiles_in_ra & tiles_in_dec]
 
-    tiles_subset["OBSCONDITIONS"] = obsconditions.mask("DARK") * np.ones(len(tiles_subset), dtype=int)
+    # tiles_subset["OBSCONDITIONS"] = obsconditions.mask("DARK") * np.ones(len(tiles_subset), dtype=int)
     print(f"Iteration {i}: {len(tiles_subset)} tiles to run")
-    tiles_subset.write(base_dir / "tiles.fits", overwrite=True)
+    tile_loc = base_dir / f"tiles-pass-{i}.fits"
+    tiles_subset.write(tile_loc, overwrite=True)
 
     params = ["--rundate",
             "2025-09-16T00:00:00+00:00",
             "--overwrite",
             "--write_all_targets",
             "--footprint", # Actually means "footprint" of tile centers...
-            str(base_dir / "tiles.fits"),
+            str(tile_loc),
             "--dir",
             str(base_dir / "fba"),
             # "--sky_per_petal",
