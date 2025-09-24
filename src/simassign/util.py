@@ -95,11 +95,8 @@ def rotate_sphere(alpha, delta, ra, dec):
     from_point = radec_to_xyz(0, 0)[:, 0]
     to_point = radec_to_xyz(alpha, delta)[:, 0]
 
-    # Will rotate in cartesian andthen convert back later.
+    # Will rotate in cartesian and then convert back later.
     points_cart = radec_to_xyz(ra, dec)
-
-    print(from_point, to_point, points_cart)
-
     theta = np.arccos(from_point.dot(to_point)) # Should be in radians
 
     # Cross product to define the axis to rotate about
