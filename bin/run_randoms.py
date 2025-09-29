@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-200/ --npass 50 --density 200
+# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-nodither/ --npass 50 --density 1000 --fourex
 
 
 # TODO proper docstring
@@ -35,9 +35,10 @@ parser.add_argument("--ramax", required=True, type=float, help="maximum RA angle
 parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle to assign over.")
 parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
-parser.add_argument("-o", "--outdir", required=True, type=str, help="where the save the mtl* and fba* output files.")
+parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
-parser.add_argument("--density", required=False, type=int, default=1, help="number density of targets per square degree.")
+parser.add_argument("--density", required=False, type=int, default=1000, help="number density of targets per square degree.")
+parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 
 args = parser.parse_args()
 
@@ -85,7 +86,12 @@ margin = tile_rad - 0.2
 
 for i in range(1, args.npass + 1):
     print(f"Beginning iteration {i} by generating tiling...")
-    tiles = rotate_tiling(base_tiles, i)
+    if args.fourex:
+         passnum = (i + 3) // 4
+    else:
+         passnum = i
+    tiles = rotate_tiling(base_tiles, passnum)
+
     # Booleans for determining which tiles to keep.
     # Margin makes sure we don't end up with tiles that are "in bounds"
     # but because of the circular shape are off the corner of the
