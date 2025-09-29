@@ -100,6 +100,9 @@ def rotate_sphere(alpha, delta, ra, dec):
     theta = np.arccos(from_point.dot(to_point)) # Should be in radians
 
     # Cross product to define the axis to rotate about
+    # (i.e. the cross product finds a vector normal to the plane defined
+    # by the two vectors, and this is the axis of rotation such that rotations
+    # occur in the defined plane)
     k = np.cross(from_point, to_point)
     k /= np.linalg.norm(k)
 
@@ -109,7 +112,7 @@ def rotate_sphere(alpha, delta, ra, dec):
     R = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
     rotated_cart = R @ points_cart
 
-    # Convert the cartesina back to the ra/dec
+    # Convert the cartesian back to the ra/dec
     dec_out = np.arcsin(rotated_cart[2, :])
     ra_out = np.arctan2(rotated_cart[1, :], rotated_cart[0, :])
 
@@ -121,6 +124,31 @@ def fix_wraparound(ra):
     return ra_out
 
 def rotate_tiling(tiles_tbl, pass_num=1):
+    """
+    Rotate the tiling defined by tiles_tbl by the rotation defined by pass_num.
+
+    Parameters
+    ----------
+    tiles_tbl : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table storing the tile definition.
+        The datamodel is largely agnostic, but should include at minimum the
+        tile centers as columns "RA" and "DEC".
+
+    pass_num : int
+        Which pass number will be defined by the rotated tiling. The pass number
+        is used to determine which rotation point to use, for pass_num <=15
+        the rotations are defined in DESI-0717, and define the original
+        DESI main survey passes. For 15 < pass_num <= 63 the rotation is
+        defined as one of the 48 new rotations determined by generate_new_rots.py.
+        pass_num = 1 does no rotation, and is the default.
+
+    Returns
+    -------
+    :class:`~astropy.table.Table`
+        Tile table defining the new rotated tiling. The output tile table
+        includes all columns necessary to run fiberassign. TILEIDs are determined
+        as the tile's index in the array plus the pass_num * 10000.
+    """
     n_desi = len(rots)
     if pass_num <= n_desi:
         rot = rots[pass_num - 1]
@@ -136,6 +164,7 @@ def rotate_tiling(tiles_tbl, pass_num=1):
         ra_new = fix_wraparound(ra_new)
 
     #Generating a new tile table.
+    # TODO copy obsconditions from input table.
     footprint = Table(data={"PROGRAM": ["DARK"] * len(tiles_tbl),
                             "OBSCONDITIONS": [obsconditions.mask("DARK")] * len(tiles_tbl),
                             "PASS": [pass_num] * len(tiles_tbl)})
