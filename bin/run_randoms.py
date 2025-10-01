@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-nodither/ --npass 50 --density 1000 --fourex
+# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits  --fourex
 
 
 # TODO proper docstring
@@ -28,6 +28,7 @@ import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import *
 from simassign.util import generate_random_objects, rotate_tiling
+from simassign.io import load_catalog
 
 
 parser = argparse.ArgumentParser()
@@ -37,8 +38,11 @@ parser.add_argument("--decmax", required=True, type=float, help="maximum DEC ang
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
-parser.add_argument("--density", required=False, type=int, default=1000, help="number density of targets per square degree.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
+
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignemnt.")
+group.add_argument("--density", type=int, help="number density per square degree of randomly generated targets.")
 
 args = parser.parse_args()
 
@@ -46,7 +50,11 @@ targetmask = load_target_yaml("targetmask.yaml")
 print(f"Using {targetmask}")
 # Generate the random targets
 rng = np.random.default_rng(91701)
-ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
+if args.density:
+    ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
+else:
+     ra, dec = load_catalog(args.catalog, [args.ramin, args.ramax, args.decmin, args.decmax])
+
 print(f"Generated {len(ra)} randoms...")
 
 tbl = Table()
