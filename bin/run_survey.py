@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Generate some randoms
-# python run_randoms.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits  --fourex
+# python run_survey.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-dither/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits  --fourex
 
 
 # TODO proper docstring
@@ -141,7 +141,7 @@ for i in range(1, args.npass + 1):
     for tileid in tiles_subset["TILEID"]:
         tileid = str(tileid)
         fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
-        print(f"Loading tids from {fba_file.name}|")
+        print(f"Loading tids from {fba_file.name}")
         with fitsio.FITS(fba_file) as h:
 
                 tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
@@ -156,7 +156,7 @@ for i in range(1, args.npass + 1):
     mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=False)
 
     # Write updated MTLs by healpix.
-    # TODO only save these after the entire assigning loop?
+    # TODO Use these per loop saved MTLS to add checkpointing to the script.
     for hpx in np.array(np.unique(mtl_all["HEALPIX"])):
         print(f"Saving healpix {hpx}")
         this_hpx = mtl_all["HEALPIX"] == hpx
