@@ -1,4 +1,8 @@
+# stdlib imports
+from pathlib import Path
+
 # DESI imports
+from desimodel.focalplane import get_tile_radius_deg
 from desitarget.targetmask import desi_mask, obsconditions
 
 # Non-DESI outside imports
@@ -177,3 +181,46 @@ def rotate_tiling(tiles_tbl, pass_num=1):
     # conflicts between pass numbers.
     footprint["TILEID"] = np.arange(len(tiles_tbl)) + pass_num * 10000
     return footprint
+
+def targets_in_tile(targs, tile_center):
+    tile_rad = get_tile_radius_deg()
+    tile_ra, tile_dec = tile_center
+
+    # Yes, this is a square and not a circle. But it trims the targets
+    # enough, and it's going to be significantly faster.
+    good_dec = np.abs(targs["DEC"] - tile_dec) <= tile_rad
+    good_ra = np.abs(targs["RA"] - tile_ra) <= tile_rad
+
+    return targs[good_ra & good_dec]
+
+# Generate target files for each of the tiles and save them to
+# outdir / pass_num. Also generate associated tile file.
+def generate_target_files(targs, tiles, out_dir, pass_num=1, debug=True, trunc=True):
+    if debug: print(f"Passed {len(tiles)} to generate target files")
+    save_loc = Path(out_dir) / f"pass-{pass_num}"
+
+    # Make the director if it doesn't exist (very likely)
+    save_loc.mkdir(parents=True, exist_ok=True)
+
+    targ_files = []
+    tile_files = []
+    for tile in tiles:
+        tileid = tile["TILEID"]
+        if trunc:
+            tile_targs = targets_in_tile(targs, (tile["RA"], tile["DEC"]))
+        else:
+            tile_targs = targs
+
+        target_filename = save_loc / f"targets-{tileid}.fits"
+        if debug: print(f"Writing to {target_filename}")
+        tile_targs.write(target_filename, overwrite=True)
+        targ_files.append(str(target_filename))
+
+        tile_filename = save_loc / f"tile-{tileid}.fits"
+        if debug: print(f"Writing to {tile_filename}")
+        tile_tbl = Table(tile)
+        tile_tbl.write(tile_filename, overwrite=True)
+        tile_files.append(str(tile_filename))
+
+    return targ_files, tile_files
+
