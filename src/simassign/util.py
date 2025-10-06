@@ -183,7 +183,8 @@ def rotate_tiling(tiles_tbl, pass_num=1):
     return footprint
 
 def targets_in_tile(targs, tile_center):
-    tile_rad = get_tile_radius_deg()
+    # Add a 0.2 buffer just in to avoid trimming targets at the edge of the focal plane.
+    tile_rad = get_tile_radius_deg() + 0.2
     tile_ra, tile_dec = tile_center
 
     # Yes, this is a square and not a circle. But it trims the targets
