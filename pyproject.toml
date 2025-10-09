@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simassign"
+description = "Simulated fiberassign/mtl updates"
+version = "1.0.0"
+authors = [{name = "Dylan Green", email = "dylangreen@lbl.gov"}]
+license = "MIT"
+dependencies = ["numpy",
+                "healpy",
+                "astropy"]
+readme = "README.md"
