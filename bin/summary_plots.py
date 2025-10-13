@@ -18,6 +18,8 @@ import numpy as np
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import deduplicate_mtl
+from simassign.io import *
+from simassign.util import get_nobs_arr
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mtls", required=True, nargs='+', default=[], help="list of mtls to load and compare.")
@@ -37,17 +39,6 @@ out_dir = Path(args.outdir)
 colors = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"] # Okabe and Ito colorbline friendly.
 
 # TODO these functions should be moved to the main package.
-def load_mtl_all(top_dir, verbose=False):
-    hp_base = top_dir / "hp" / "main" / "dark"
-    mtl_all = Table()
-    tbls = []
-    for mtl_loc in hp_base.glob("*.fits"):
-        if verbose: print(f"Loading {mtl_loc.name}")
-        temp_tbl = Table.read(mtl_loc)
-        tbls.append(temp_tbl)
-    mtl_all = vstack(tbls)
-    return mtl_all
-
 def get_all_mtl_locs(top_dir):
     hp_base = top_dir / "hp" / "main" / "dark"
     return list(hp_base.glob("*.fits"))
@@ -55,32 +46,6 @@ def get_all_mtl_locs(top_dir):
 def load_mtl(mtl_loc):
     temp_tbl = Table.read(mtl_loc)
     return temp_tbl
-
-def get_nobs_arr(mtl):
-    timestamps = np.array(mtl["TIMESTAMP"])
-    ts = np.array([datetime.fromisoformat(x.decode()) for x in timestamps])
-    unique_timestamps = np.unique(ts)
-
-    # Timestamps correspond with when the MTL was created/updated
-    # So we can loop over the timestamps to get information from each
-    # fiberassign run.
-    bins = np.arange(-0.5, len(unique_timestamps) - 0.4, 1) # "binning" for counting numbers of observations of targets.
-    nobs = []
-    for time in unique_timestamps:
-        keep_rows = ts <= time
-        # print(sum(keep_rows))
-
-        trunc_mtl = deduplicate_mtl(mtl[keep_rows])
-        h, _ = np.histogram(trunc_mtl["NUMOBS"], bins=bins)
-        nobs.append(h)
-
-    obs_arr = np.asarray(nobs)
-    # Reverse to go max down to zero, then sum to get how many have at least that number exposures
-    # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
-    # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
-    at_least_n = np.cumsum(obs_arr[:, ::-1], axis=1)[:, ::-1]
-
-    return obs_arr, at_least_n
 
 def get_num_tiles(top_dir, n_passes):
     n_tiles = [0]

@@ -1,4 +1,5 @@
 # stdlib imports
+from datetime import datetime
 from pathlib import Path
 
 # DESI imports
@@ -9,6 +10,7 @@ from desitarget.targetmask import desi_mask, obsconditions
 from astropy.table import Table
 import numpy as np
 
+from simassign.mtl import deduplicate_mtl
 
 # Rotations for first through 15th passes of the sky of the DESI tiling
 rots = np.array([[0, 0],
@@ -79,7 +81,7 @@ new_rots = np.array([[-2.55045500e+00,  4.35673381e+00],
 
 def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
     area = (ramax - ramin) * np.degrees((np.sin(np.radians(decmax)) - np.sin(np.radians(decmin))))
-    n_obj = int(area * density) # 1000 / sq. deg * area
+    n_obj = int(area * density) # density * area
 
     ra = rng.uniform(ramin, ramax, size=n_obj)
     dec = rng.uniform(decmin, decmax, size=n_obj)
@@ -225,3 +227,28 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, debug=True, trunc=T
 
     return targ_files, tile_files
 
+def get_nobs_arr(mtl):
+    timestamps = np.array(mtl["TIMESTAMP"])
+    ts = np.array([datetime.fromisoformat(x.decode()) for x in timestamps])
+    unique_timestamps = np.unique(ts)
+
+    # Timestamps correspond with when the MTL was created/updated
+    # So we can loop over the timestamps to get information from each
+    # fiberassign run.
+    bins = np.arange(-0.5, len(unique_timestamps) - 0.4, 1) # "binning" for counting numbers of observations of targets.
+    nobs = []
+    for time in unique_timestamps:
+        keep_rows = ts <= time
+        # print(sum(keep_rows))
+
+        trunc_mtl = deduplicate_mtl(mtl[keep_rows])
+        h, _ = np.histogram(trunc_mtl["NUMOBS"], bins=bins)
+        nobs.append(h)
+
+    obs_arr = np.asarray(nobs)
+    # Reverse to go max down to zero, then sum to get how many have at least that number exposures
+    # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
+    # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
+    at_least_n = np.cumsum(obs_arr[:, ::-1], axis=1)[:, ::-1]
+
+    return obs_arr, at_least_n

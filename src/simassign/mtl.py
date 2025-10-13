@@ -69,6 +69,7 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
 
             this_target = (mtl_updates["DESI_TARGET"] & bit) != 0
 
+            # TODO only do this if some verbose mode is on.
             print(f"update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
 
             # lazily assume that the target class is correct and we want more zgood.
@@ -110,7 +111,7 @@ def deduplicate_mtl(mtl):
     Returns
     -------
     :class:`~numpy.array` or `~astropy.table.Table`
-        MTL table with keeping only the most recent entry per TARGETID. Return
+        MTL table keeping only the most recent entry per TARGETID. Return
         type will match input MTL type.
     """
     # Flip to keep most recent element instead of first.

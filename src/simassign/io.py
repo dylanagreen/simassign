@@ -1,4 +1,5 @@
-from astropy.table import Table
+# External importss
+from astropy.table import Table, vstack
 import numpy as np
 
 def load_catalog(file_loc, box=None):
@@ -16,3 +17,14 @@ def load_catalog(file_loc, box=None):
 
         tbl = tbl[in_ra & in_dec]
     return np.array(tbl["RA"]), np.array(tbl["DEC"])
+
+def load_mtl_all(top_dir, verbose=False):
+    hp_base = top_dir / "hp" / "main" / "dark"
+    mtl_all = Table()
+    tbls = []
+    for mtl_loc in hp_base.glob("*.fits"):
+        if verbose: print(f"Loading {mtl_loc.name}")
+        temp_tbl = Table.read(mtl_loc)
+        tbls.append(temp_tbl)
+    mtl_all = vstack(tbls)
+    return mtl_all
