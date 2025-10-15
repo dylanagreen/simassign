@@ -125,7 +125,24 @@ def rotate_sphere(alpha, delta, ra, dec):
     return np.degrees(ra_out), np.degrees(dec_out)
 
 def fix_wraparound(ra):
-    ra_out = np.copy(ra)
+    """
+    Fix right ascension (RA) values to correclty lie within 0 to 360 degrees.
+
+    The output of :func:`rotate_tiling` may occasionally rotate tilings into negative RA,
+    this helper function simply corrects those values.
+
+    Parameters
+    ----------
+    ra : :class:`~numpy.array`
+        Right ascension values which may or may not be negative.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Corrected right ascension values such that all values lie between 0
+        and 360.
+    """
+    ra_out = np.copy(ra) # Copy to avoid mutating inputs
     ra_out[ra < 0] = ra[ra < 0] + 360
     return ra_out
 
@@ -185,6 +202,32 @@ def rotate_tiling(tiles_tbl, pass_num=1):
     return footprint
 
 def targets_in_tile(targs, tile_center):
+    """
+    Trim the targets table to only those targets that could potentially be observed
+    by the tile centered at `tile_center`.
+
+    Targets are trimmed using the DESI tile radius plus an extra 0.2 degree
+    buffer to ensure no targets at the edge of the tile are trimmed. For
+    speed targets are trimmed to the box that circumscribes the tile with this
+    radius, rather than the exact circular tile geometry.
+
+    Parameters
+    ----------
+    targs : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table storing the target definition.
+        The datamodel is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each target position. Any other
+        columns are ignored.
+
+    tile_center : (float, float)
+        Tuple of RA and DEC defining a tile center.
+
+    Returns
+    -------
+    :class:`~numpy.array` or `~astropy.table.Table`
+        Table of targets trimmed to those targets that lie within observing
+        range of the tile. Return type will match that of the input type.
+    """
     # Add a 0.2 buffer just in to avoid trimming targets at the edge of the focal plane.
     tile_rad = get_tile_radius_deg() + 0.2
     tile_ra, tile_dec = tile_center
