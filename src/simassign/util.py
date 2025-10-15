@@ -235,7 +235,7 @@ def rotate_tiling(tiles_tbl, pass_num=1):
 
     Parameters
     ----------
-    tiles_tbl : :class:`~numpy.array` or `~astropy.table.Table`
+    tiles_tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
         The datamodel is largely agnostic, but should include at minimum the
         tile centers as columns "RA" and "DEC".
@@ -296,7 +296,7 @@ def targets_in_tile(targs, tile_center):
 
     Parameters
     ----------
-    targs : :class:`~numpy.array` or `~astropy.table.Table`
+    targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the target definition.
         The datamodel is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each target position. Any other
@@ -307,7 +307,7 @@ def targets_in_tile(targs, tile_center):
 
     Returns
     -------
-    :class:`~numpy.array` or `~astropy.table.Table`
+    :class:`~numpy.array` or :class:`~astropy.table.Table`
         Table of targets trimmed to those targets that lie within observing
         range of the tile. Return type will match that of the input type.
     """
@@ -331,12 +331,12 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, verbose=False, trun
 
     Parameters
     ----------
-    targs : :class:`~numpy.array` or `~astropy.table.Table`
+    targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the target definition.
         The datamodel is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each target position.
 
-    tiles : :class:`~numpy.array` or `~astropy.table.Table`
+    tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
         The datamodel is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each tile center.
@@ -400,7 +400,7 @@ def get_nobs_arr(mtl):
 
     Parameters
     ----------
-    mtl : :class:`~numpy.array` or `~astropy.table.Table`
+    mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
 
