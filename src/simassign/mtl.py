@@ -15,10 +15,37 @@ from pathlib import Path
 import yaml
 
 def update_mtl(mtl, tids_to_update, use_desitarget=False):
+    """
+    Update an MLT after taking an observation of `tids_to_update`.
+
+    Parameters
+    ----------
+    mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the MTL. This should have
+        the full MTL data model.
+
+    tids_to_update : :class:`~numpy.array`
+        List of targetids to update in the MTL.
+
+    use_desitarget : bool
+        Whether or not to use `desitarget.make_mtl` to update MTL or to
+        use the internal logic defined in the simassign targetmask.yaml
+        file. Using `desitarget.make_mtl` restricts the update loop to use
+        specifically the QSO target class of desitarget. Defaults to False.
+
+    Returns
+    -------
+    :class:`~numpy.array` or :class:`~astropy.table.Table`
+       Update MTL that contains all the original rows of the input MTL plus
+       the additional rows defining the updated state of the targets defined
+       in tids_to_update.
+    """
     # Use desitarget = use a dummy zcat and use make_mtl to update the MTL
     if use_desitarget:
         # If we use desitarget we will use a dummy zcat for now to update.
         rng = np.random.default_rng() # Just used for dummy redshifts.
+
+        # TODO change this to a dedpulicate_mtl call.
         unique_mtl = mtl[::-1]
         _, ii = np.unique(unique_mtl["TARGETID"], return_index=True)
         unique_mtl = unique_mtl[ii]
@@ -101,7 +128,7 @@ def deduplicate_mtl(mtl):
 
     Parameters
     ----------
-    mtl : :class:`~numpy.array` or `~astropy.table.Table`
+    mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the MTL. The datamodel is
         largely agnostic, but should include at least the columns TARGETID and
         TIMESTAMP. This function assumes that the MTL is correctly sorted by
@@ -110,7 +137,7 @@ def deduplicate_mtl(mtl):
 
     Returns
     -------
-    :class:`~numpy.array` or `~astropy.table.Table`
+    :class:`~numpy.array` or :class:`~astropy.table.Table`
         MTL table keeping only the most recent entry per TARGETID. Return
         type will match input MTL type.
     """
@@ -122,12 +149,55 @@ def deduplicate_mtl(mtl):
 
 # TODO move this.
 def load_target_yaml(fname):
+    """
+    Load the targeting yaml saved as `fname`.
+
+    Parameters
+    ----------
+    fname : str
+        Filename of the yaml file to load. File is searched for in the
+        package data, so this should be a filename that exists in the
+        simassign package.
+
+    Returns
+    -------
+    Object
+        Python object containing the data stored in `fname`.
+    """
     floc = resources.files("simassign").joinpath(f"data/{fname}")
     with open(floc) as f:
         return yaml.safe_load(f)
 
 
 def initialize_mtl(base_tbl, save_dir=None):
+    """
+    Initialize an MTL in a format readable by fiberassign contaning all
+    the necessary columns for state tracking.
+
+    Under the hood this function uses the `desitarget` MTL creation functions
+    to initialize a table with the necessary MTL data model
+    required columns. The column values are updated as necessary to match
+    the simassign targetmask.yaml file LAE targets.
+
+    Parameters
+    ----------
+    base_tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the targets. At minimum
+        this must include the RA and DEC coordinates of the targets. Other
+        columns will be overwritten as necessary.
+
+    save_dir : str or :class:`~pathlib.Path`
+       If given, where to save the produced MTL. Saving the MTL is done using
+       `make_ledger_hp`, which generates the MTLs and splits them by healpix,
+       saving them in the `save_dir`. Defaults to None.
+
+    Returns
+    -------
+    :class:`~numpy.array` or :class:`~astropy.table.Table`
+       MTL corresponding to the targets given in the `base_tbl`. Even when saving
+       the MTL split across healpix (when `save_dir` is passed) this function
+       still returns the full global MTL.
+    """
     # Minimum set of columns necessary for make_mtl:
     # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
     # For targetids we will use the indices, they just need to be unique and non negative
@@ -136,6 +206,7 @@ def initialize_mtl(base_tbl, save_dir=None):
 
     # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
     # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
+    # TODO tests indicated that fiberassign hangs indefinitely if you use a non-DESI bit, investigate further...
     tbl["DESI_TARGET"] = 2**2
 
     # These two are unused but necessary to exist for mtl
