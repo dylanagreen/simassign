@@ -80,6 +80,39 @@ new_rots = np.array([[-2.55045500e+00,  4.35673381e+00],
 
 
 def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
+    """
+    Generate uniformly distributed, randomly positioned targets across a
+    coordinate box.
+
+    Parameters
+    ----------
+    ramin : float
+        Minimum RA of the box to generate over.
+
+    ramax : float
+        Maximum RA of the box to generate over.
+
+    decmin : float
+        Minimum DEC of the box to generate over.
+
+    decmax : float
+        Maximum DEC of the box to generate over.
+
+    rng : :class:`numpy.random.Generator`
+        A random number generator to use for generating the random objects.
+
+    density : int or float
+        Uniform densty of targets per square degree to generate. Defaults to
+        1000.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Right ascension coordinates of the generated points.
+
+    :class:`~numpy.array`
+        Declination coordinates of the generated points.
+    """
     area = (ramax - ramin) * np.degrees((np.sin(np.radians(decmax)) - np.sin(np.radians(decmin))))
     n_obj = int(area * density) # density * area
 
@@ -89,7 +122,27 @@ def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
     return ra, dec
 
 def radec_to_xyz(alpha, delta):
-    # Converts to xyz cartesian from polar coords assuming unit radius
+    """
+    Converts a set of polar coordinate points assuming unit radius to 3D xyz
+    cartesian coordinates.
+
+    Parameters
+    ----------
+    alpha : :class:`~numpy.array`
+        Angle around the sphere from the coordinate 0,0. In celestial
+        coordinates, also known as right ascension.
+
+    delta : :class:`~numpy.array`
+        Angle above the horizon, in celestial
+        coordinates, also known as declination.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Two dimensional array containing the x, y, and z coordinates of the given
+        points in the first, second and third rows respectively.
+    """
+
     alpha_r, delta_r = np.radians(alpha), np.radians(delta)
     x = np.cos(delta_r) * np.cos(alpha_r)
     y = np.cos(delta_r) * np.sin(alpha_r)
@@ -97,6 +150,36 @@ def radec_to_xyz(alpha, delta):
     return np.vstack([x, y, z])
 
 def rotate_sphere(alpha, delta, ra, dec):
+    """
+    Spherically rotate a set of RA and DEC points through the great circle
+    defined by the offset angles alpha and delta.
+
+    The angles alpha and delta define a point in spherical space. The
+    points defined by RA and DEC are rotated by the rotation defined such
+    that the point (0,0) is rotated into (alpha, delta)
+
+    Parameters
+    ----------
+    alpha : :class:`~numpy.array`
+        Right ascension coordinate defining the rotation vector, in degrees.
+
+    delta : :class:`~numpy.array`
+        Declination coordinate defining the rotation vector, in degrees.
+
+    ra : :class:`~numpy.array`
+        Right ascension coordinate of the points to be rotated, in degrees.
+
+    dec : :class:`~numpy.array`
+        Declination coordinate of the points to be rotated, in degrees.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        The new, rotated, right ascension points.
+
+    :class:`~numpy.array`
+        The new, rotated, declination points.
+    """
     # These two vectors define the rotation
     from_point = radec_to_xyz(0, 0)[:, 0]
     to_point = radec_to_xyz(alpha, delta)[:, 0]
@@ -241,8 +324,48 @@ def targets_in_tile(targs, tile_center):
 
 # Generate target files for each of the tiles and save them to
 # outdir / pass_num. Also generate associated tile file.
-def generate_target_files(targs, tiles, out_dir, pass_num=1, debug=True, trunc=True):
-    if debug: print(f"Passed {len(tiles)} to generate target files")
+def generate_target_files(targs, tiles, out_dir, pass_num=1, verbose=False, trunc=True):
+    """
+    Given a set of targets and a set of tiles, generate the necessary
+    files on disk that encode which targets are accessible by each tile.
+
+    Parameters
+    ----------
+    targs : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table storing the target definition.
+        The datamodel is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each target position.
+
+    tiles : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table storing the tile definition.
+        The datamodel is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each tile center.
+
+    out_dir : str or :class:`~pathlib.Path`
+        The directory to save the tile and target files to.
+
+    pass_num : int
+        The integer corresponding to this pass number, used for generating
+        a subdirectory in `out_dir` to group all associated files. Defaults to 1.
+
+    verbose : bool
+        Print verbosely when saving each file, defaults to False.
+
+    trunc : bool
+        If true, truncate each saved targets file to only be the targets
+        corresponding to the given tile when saving that tile/target file
+        combination. Otherwise save all targets to all tile files. Defaults to True.
+
+
+    Returns
+    -------
+    list(str)
+        List of all target file names.
+
+    list(str)
+        List of all tile file names.
+    """
+    if verbose: print(f"Passed {len(tiles)} to generate target files")
     save_loc = Path(out_dir) / f"pass-{pass_num}"
 
     # Make the director if it doesn't exist (very likely)
@@ -258,12 +381,12 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, debug=True, trunc=T
             tile_targs = targs
 
         target_filename = save_loc / f"targets-{tileid}.fits"
-        if debug: print(f"Writing to {target_filename}")
+        if verbose: print(f"Writing to {target_filename}")
         tile_targs.write(target_filename, overwrite=True)
         targ_files.append(str(target_filename))
 
         tile_filename = save_loc / f"tile-{tileid}.fits"
-        if debug: print(f"Writing to {tile_filename}")
+        if verbose: print(f"Writing to {tile_filename}")
         tile_tbl = Table(tile)
         tile_tbl.write(tile_filename, overwrite=True)
         tile_files.append(str(tile_filename))
@@ -271,6 +394,30 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, debug=True, trunc=T
     return targ_files, tile_files
 
 def get_nobs_arr(mtl):
+    """
+    Given an MTL generate an array of the number of targets with $m <= N$ observations
+    after $n$ passes, up to the total number $N$ passes.
+
+    Parameters
+    ----------
+    mtl : :class:`~numpy.array` or `~astropy.table.Table`
+        A numpy rec array or astropy Table representing the MTL. It is
+        necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Array storing the number of targets with the number of observations
+        given by the 1st axis, at the pass number given by the position
+        in the 0th axis. For example, the position obs_arr[6, 3] indicates
+        how many targets have *exactly* 3 exposures after 6 passes.
+
+    :class:`~numpy.array`
+        Array storing the number of targets with *at least* the number of
+        observations given by the 1st axis. For example, the position
+        at_least_arr[6, 3] indicates
+        how many targets have 3 *or more* exposures after 6 passes.
+    """
     timestamps = np.array(mtl["TIMESTAMP"])
     ts = np.array([datetime.fromisoformat(x.decode()) for x in timestamps])
     unique_timestamps = np.unique(ts)
