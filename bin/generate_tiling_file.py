@@ -75,7 +75,7 @@ start_time = datetime.fromisoformat(args.starttime)
 print(str(start_time))
 
 # datetime.timedelta(days=10)
-tiles["TIMESTAMP"] = str(start_time)
+tiles["TIMESTAMP"] = start_time.isoformat()
 
 timestamps = [str(start_time)] * np.sum(tiles["IN_DESI"])
 cur_time = start_time + timedelta(seconds=1000)
@@ -85,7 +85,7 @@ n_days = 0
 n_exps = 0
 for i in range(len(timestamps)):
 
-    timestamps[i] = str(cur_time)
+    timestamps[i] = cur_time.isoformat()
     cur_time = cur_time + timedelta(seconds=1000)
     n_exps += 1
 

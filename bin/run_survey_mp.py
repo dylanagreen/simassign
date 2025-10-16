@@ -3,9 +3,9 @@
 # Run simulated fiberassign over either a simulated or given catalog.
 # python run_survey_mp.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-withstandards/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100-big-nproc-32-inputtiles/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv
 
 # TODO proper docstring
 import argparse
@@ -106,22 +106,22 @@ tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 fba_loc = str(base_dir / "fba")
 
-def fiberassign_tile(targ_loc, tile_loc):
+def fiberassign_tile(targ_loc, tile_loc, runtime):
     params = ["--rundate",
-            "2025-09-16T00:00:00+00:00",
-            "--overwrite",
-            "--write_all_targets",
-            "--footprint", # Actually means "footprint" of tile centers...
-            tile_loc,
-            "--dir",
-            fba_loc,
-            # "--sky_per_petal",
-            # 0, # Use the default for this
-            # "--standards_per_petal",
-            # 0,
-            "--overwrite",
-            "--targets",
-            targ_loc,
+              runtime,
+              "--overwrite",
+              "--write_all_targets",
+              "--footprint", # Actually means "footprint" of tile centers...
+              tile_loc,
+              "--dir",
+              fba_loc,
+              # "--sky_per_petal",
+              # 0, # Use the default for this
+              # "--standards_per_petal",
+              # 0,
+              "--overwrite",
+              "--targets",
+              targ_loc,
     ]
 
     fba_args = parse_assign(params)
@@ -167,10 +167,9 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     tile_loc = base_dir / f"tiles-{timestamp}.fits"
     tiles_subset.write(tile_loc, overwrite=True)
 
-    # TODO propagate timestamp to fiberassign
-    fiberassign_locs = zip(targ_files, tile_files)
+    fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"])
     with Pool(args.nproc) as p:
-         p.starmap(fiberassign_tile, fiberassign_locs)
+         p.starmap(fiberassign_tile, fiberassign_params)
 
     assigned_tids = np.array([])
     # TODO we can parallelize this because the order of assigned tids is irrelevant
