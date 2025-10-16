@@ -49,9 +49,10 @@ def load_mtl(mtl_loc):
 
 def get_num_tiles(top_dir, n_passes):
     n_tiles = [0]
-    for i in range(1, n_passes + 1):
-        tile_file = top_dir / f"tiles-pass-{i}.fits"
-        with fitsio.FITS(tile_file) as h:
+    for fname in top_dir.glob("tiles-*.fits"):
+    # for i in range(1, n_passes + 1):
+    #     tile_file = top_dir / f"tiles-pass-{i}.fits"
+        with fitsio.FITS(fname) as h:
             n_tiles.append(len(h[1][:]))
     return n_tiles
 
@@ -211,3 +212,6 @@ if args.targs:
 # python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --density_assign --labels "Movable Collimater (1000 sq. deg.)" "Offset Tiles (1000 sq. deg.)" "Movable Collimater (1200 sq. deg.)" "Offset Tiles (1200 sq. deg.)"
 
 # python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Movable Collimater" "Offset Tiles"
+
+
+# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Per Night" "Original"

@@ -324,7 +324,7 @@ def targets_in_tile(targs, tile_center):
 
 # Generate target files for each of the tiles and save them to
 # outdir / pass_num. Also generate associated tile file.
-def generate_target_files(targs, tiles, out_dir, pass_num=1, verbose=False, trunc=True):
+def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=True):
     """
     Given a set of targets and a set of tiles, generate the necessary
     files on disk that encode which targets are accessible by each tile.
@@ -344,8 +344,8 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, verbose=False, trun
     out_dir : str or :class:`~pathlib.Path`
         The directory to save the tile and target files to.
 
-    pass_num : int
-        The integer corresponding to this pass number, used for generating
+    night : int
+        The integer corresponding to the night of observation, used for generating
         a subdirectory in `out_dir` to group all associated files. Defaults to 1.
 
     verbose : bool
@@ -366,7 +366,7 @@ def generate_target_files(targs, tiles, out_dir, pass_num=1, verbose=False, trun
         List of all tile file names.
     """
     if verbose: print(f"Passed {len(tiles)} to generate target files")
-    save_loc = Path(out_dir) / f"pass-{pass_num}"
+    save_loc = Path(out_dir) / f"night-{night}"
 
     # Make the director if it doesn't exist (very likely)
     save_loc.mkdir(parents=True, exist_ok=True)

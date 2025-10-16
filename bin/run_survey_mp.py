@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
 # Run simulated fiberassign over either a simulated or given catalog.
-# python run_survey_mp.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-rerun/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --fourex
+# python run_survey_mp.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-withstandards/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --fourex
 
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
+
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv
 
 # TODO proper docstring
 import argparse
@@ -39,7 +42,9 @@ parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle
 parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
-parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
+parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
+# parser.add_argument("--npass", required=False, type=int, default=100,
+#                     help="number of assignment passes to do. Script will run as many passes as possible up to npass or max(tiles[\"PASS\"]), whichever is lower.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 
@@ -85,8 +90,10 @@ hp_base = base_dir / "hp" / "main" / "dark"
 # tiles = load_tiles()
 
 # Load the geometry superset to get the tiling of the entire sky.
-tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
-tiles = Table(tiles)
+# tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
+# tiles = Table(tiles)
+tile_loc = Path(args.tiles)
+tiles = Table.read(tile_loc)
 
 # This ensures we only get one tiling of the sky to use as a base.
 zero_pass = tiles["PASS"] == 0
@@ -110,8 +117,8 @@ def fiberassign_tile(targ_loc, tile_loc):
             fba_loc,
             # "--sky_per_petal",
             # 0, # Use the default for this
-            "--standards_per_petal",
-            0,
+            # "--standards_per_petal",
+            # 0,
             "--overwrite",
             "--targets",
             targ_loc,
@@ -132,29 +139,35 @@ def load_tids_from_fba(fba_loc):
     return tids
 
 curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
-for i in range(1, args.npass + 1):
+
+# for i in range(1, args.npass + 1):
+n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
+for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     print(f"Beginning iteration {i} by generating tiling...")
-    if args.fourex: # Repeat each tiling four times before moving to the next one
-         passnum = (i + 3) // 4
-    else:
-         passnum = i
-    tiles = rotate_tiling(base_tiles, passnum)
+    # if args.fourex: # Repeat each tiling four times before moving to the next one
+    #      passnum = (i + 3) // 4
+    # else:
+    #      passnum = i
+    # tiles = rotate_tiling(base_tiles, passnum)
 
     # Booleans for determining which tiles to keep.
     # Margin makes sure we don't end up with tiles that are "in bounds"
     # but because of the circular shape are off the corner of the
     # region and don't actually cover any of the targets (which crashes fiberassign)
-    tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-    tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-    tiles_subset = tiles[tiles_in_ra & tiles_in_dec]
+    # tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
+    # tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
+    # tiles_subset = tiles[tiles_in_ra & tiles_in_dec]
+    this_date = tiles["TIMESTAMP_YMD"] == timestamp
+    tiles_subset = tiles[this_date & tiles["IN_DESI"]]
 
-    print(f"Iteration {i}: {len(tiles_subset)} tiles to run")
+    print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles to run")
     targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
     # Worthwhile to keep this for summary plot purposes
-    tile_loc = base_dir / f"tiles-pass-{i}.fits"
+    tile_loc = base_dir / f"tiles-{timestamp}.fits"
     tiles_subset.write(tile_loc, overwrite=True)
 
+    # TODO propagate timestamp to fiberassign
     fiberassign_locs = zip(targ_files, tile_files)
     with Pool(args.nproc) as p:
          p.starmap(fiberassign_tile, fiberassign_locs)
@@ -174,13 +187,14 @@ for i in range(1, args.npass + 1):
 
                 assigned_tids = np.concatenate([assigned_tids, tids])
 
+    # TODO propagate timestamp to mtl updates.
     mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=False)
 
     # Write updated MTLs by healpix.
     # TODO Seems to me like the way to {do update the global MTL is iterate over it
     # by healpix, and save the updated healpix if there are updated observations
     # for that healpix.
-    # TODO Use these per loop saved MTLS to add checkpointing to the script.
+    # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
     for hpx in np.array(np.unique(mtl_all["HEALPIX"])):
         print(f"Saving healpix {hpx}")
         this_hpx = mtl_all["HEALPIX"] == hpx
@@ -193,4 +207,4 @@ print("Done!")
 t_end = time.time()
 print(f"Init: \t\t\t{t2 - t_start} \t {(t2 - t_start) / 60}")
 print(f"Full: \t\t\t{t_end - t_start} \t {(t_end - t_start) / 60}")
-print(f"Average per pass: \t{(t_end - t2) / args.npass}\t {(t_end - t2) / (args.npass * 60)}")
+print(f"Average per night: \t{(t_end - t2) / n_nights}\t {(t_end - t2) / (n_nights * 60)}")
