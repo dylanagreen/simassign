@@ -21,24 +21,6 @@ import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.util import rotate_tiling
 
-# %ECSV 1.0
-# ---
-# datatype:
-# - {name: TILEID, datatype: int64}
-# - {name: PASS, datatype: float64}
-# - {name: RA, datatype: float64}
-# - {name: DEC, datatype: float64}
-# - {name: PROGRAM, datatype: string}
-# - {name: IN_DESI, datatype: bool}
-
-# - {name: PRIORITY, datatype: float64, format: '%10.3e', description: Tile observation priority}
-# - {name: STATUS, datatype: string, description: 'unobs, obsstart, obsend, done'}
-# - {name: EBV_MED, datatype: float64, format: '%6.3f', description: median E(B-V) on tile}
-# - {name: DESIGNHA, datatype: float64, format: '%7.2f', description: Design hour angles}
-# - {name: DONEFRAC, datatype: float64, format: '%7.4f', description: Tile completeness fraction}
-# - {name: AVAILABLE, datatype: bool, description: Fiberassign file is available}
-# - {name: PRIORITY_BOOSTFAC, datatype: float64, format: '%7.3f', description: Manual boost factor applied on top of computed priorities.}
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--ramax", required=True, type=float, help="maximum RA angle to assign over.")
 parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle to assign over.")
@@ -121,6 +103,16 @@ tiles["TIMESTAMP"][tiles["IN_DESI"]] = timestamps
 # Will use this column for breaking down observation dates without time
 ts = [datetime.fromisoformat(x).strftime("%Y%m%d") for x in tiles["TIMESTAMP"]]
 tiles["TIMESTAMP_YMD"] = ts
+
+# Adding some addigional necessary columns
+tiles["PRIORITY"] = 1000 # Some good number... for this we want them to be all the same priority
+tiles["STATUS"] = "unobs"
+tiles["EBV_MED"] = 0.01 # TODO figure this out.
+tiles["DESIGNHA"] = 10 # TODO figure this out
+tiles["DONEFRAC"] = 0.0
+tiles["AVAILABLE"] = True
+tiles["PRIORITY_BOOSTFAC"] = 1.0
+
 print(tiles[tiles["IN_DESI"]])
 print(tiles)
 
@@ -130,3 +122,21 @@ print(tiles)
 
 base_dir = Path(args.outdir)
 tiles.write(base_dir / f"tiles-{args.npass}pass-superset.ecsv", format="ascii.ecsv", overwrite=True)
+
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: TILEID, datatype: int64}
+# - {name: PASS, datatype: float64}
+# - {name: RA, datatype: float64}
+# - {name: DEC, datatype: float64}
+# - {name: PROGRAM, datatype: string}
+# - {name: IN_DESI, datatype: bool}
+
+# - {name: PRIORITY, datatype: float64, format: '%10.3e', description: Tile observation priority}
+# - {name: STATUS, datatype: string, description: 'unobs, obsstart, obsend, done'}
+# - {name: EBV_MED, datatype: float64, format: '%6.3f', description: median E(B-V) on tile}
+# - {name: DESIGNHA, datatype: float64, format: '%7.2f', description: Design hour angles}
+# - {name: DONEFRAC, datatype: float64, format: '%7.4f', description: Tile completeness fraction}
+# - {name: AVAILABLE, datatype: bool, description: Fiberassign file is available}
+# - {name: PRIORITY_BOOSTFAC, datatype: float64, format: '%7.3f', description: Manual boost factor applied on top of computed priorities.}
