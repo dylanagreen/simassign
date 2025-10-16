@@ -121,7 +121,13 @@ print(tiles)
 
 
 base_dir = Path(args.outdir)
-tiles.write(base_dir / f"tiles-{args.npass}pass-superset.ecsv", format="ascii.ecsv", overwrite=True)
+fname = f"tiles-{args.npass}pass-superset.ecsv"
+if args.fourex:
+    fname = f"tiles-{args.npass // 4}pass-fourex-superset.ecsv"
+
+print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
+
+tiles.write(base_dir / fname, format="ascii.ecsv", overwrite=True)
 
 # %ECSV 1.0
 # ---
