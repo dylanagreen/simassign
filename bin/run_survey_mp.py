@@ -50,7 +50,7 @@ parser.add_argument("--nproc", required=False, type=int, default=1, help="number
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 
 group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignemnt.")
+group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignment.")
 group.add_argument("--density", type=int, help="number density per square degree of randomly generated targets.")
 
 args = parser.parse_args()
@@ -143,6 +143,11 @@ def load_tids_from_fba(fba_loc):
         tids = tids[(tids > 0) & (device != "ETC")]
     return tids
 
+def save_mtl(mtl_to_save, hpx):
+    print(f"Saving healpix {hpx}")
+    mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.fits", overwrite=True)
+
+
 curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
 
 # for i in range(1, args.npass + 1):
@@ -187,10 +192,17 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     # by healpix, and save the updated healpix if there are updated observations
     # for that healpix.
     # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
-    for hpx in np.array(np.unique(mtl_all["HEALPIX"])):
-        print(f"Saving healpix {hpx}")
-        this_hpx = mtl_all["HEALPIX"] == hpx
-        mtl_all[this_hpx].write(hp_base / f"mtl-dark-hp-{hpx}.fits", overwrite=True)
+    # TODO Saving is embarassingly paralell. Parallelize this.
+    hpx_to_update = np.array(np.unique(mtl_all["HEALPIX"]))
+    mtls_to_save = [mtl_all[mtl_all["HEALPIX"] == hpx] for hpx in hpx_to_update]
+    save_params = zip(mtls_to_save, hpx_to_update)
+    with Pool(args.nproc) as p:
+         p.starmap(save_mtl, save_params)
+
+    # for hpx in :
+    #     print(f"Saving healpix {hpx}")
+    #     this_hpx = mtl_all["HEALPIX"] == hpx
+    #     mtl_all[this_hpx].write(hp_base / f"mtl-dark-hp-{hpx}.fits", overwrite=True)
 
     curr_mtl = deduplicate_mtl(mtl_all)
     curr_mtl.write(base_dir / "targets.fits", overwrite=True)
