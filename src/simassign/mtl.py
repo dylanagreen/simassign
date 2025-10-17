@@ -74,9 +74,9 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
         mtl_updates = make_mtl(unique_mtl, "DARK", zcat=zcat, trimtozcat=True)
     else:
         # Make sure we only update on the latest version of the MTL.
-        unique_mtl = deduplicate_mtl(mtl)
-        update_rows = np.isin(unique_mtl["TARGETID"], tids_to_update)
-        mtl_updates = unique_mtl[update_rows]
+        update_rows = np.isin(mtl["TARGETID"], tids_to_update)
+        mtl_updates = deduplicate_mtl(mtl[update_rows])
+        # mtl_updates = unique_mtl[update_rows]
 
         # Iterate the number of observations
         mtl_updates["NUMOBS"] += 1
