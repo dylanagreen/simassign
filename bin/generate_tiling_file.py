@@ -108,7 +108,7 @@ tiles["TIMESTAMP_YMD"] = ts
 tiles["PRIORITY"] = 1000 # Some good number... for this we want them to be all the same priority
 tiles["STATUS"] = "unobs"
 tiles["EBV_MED"] = 0.01 # TODO figure this out.
-tiles["DESIGNHA"] = 10 # TODO figure this out
+tiles["DESIGNHA"] = 0 # TODO figure this out
 tiles["DONEFRAC"] = 0.0
 tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
@@ -123,7 +123,7 @@ print(tiles)
 base_dir = Path(args.outdir)
 fname = f"tiles-{args.npass}pass-superset.ecsv"
 if args.fourex:
-    fname = f"tiles-{args.npass // 4}pass-fourex-superset.ecsv"
+    fname = f"tiles-{args.npass // 4}pass-movable_collimator-superset.ecsv"
 
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
 
