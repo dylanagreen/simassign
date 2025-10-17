@@ -5,7 +5,7 @@
 
 # python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100-big-nproc-32-inputtiles/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100-big-nproc-32-inputtiles-withstds/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
 
 # TODO proper docstring
 import argparse
@@ -43,6 +43,7 @@ parser.add_argument("--decmax", required=True, type=float, help="maximum DEC ang
 parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
+parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
 # parser.add_argument("--npass", required=False, type=int, default=100,
 #                     help="number of assignment passes to do. Script will run as many passes as possible up to npass or max(tiles[\"PASS\"]), whichever is lower.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
@@ -77,7 +78,11 @@ pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
 print(f"{len(pixlist)} HEALpix to write.")
 
-mtl_all = initialize_mtl(tbl, args.outdir)
+if args.stds is not None:
+    stds_catalog = Table.read(args.stds)
+    mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog)
+else:
+    mtl_all = initialize_mtl(tbl, args.outdir)
 t2 = time.time()
 
 # Directories for later
@@ -143,20 +148,8 @@ curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
 # for i in range(1, args.npass + 1):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
-    print(f"Beginning iteration {i} by generating tiling...")
-    # if args.fourex: # Repeat each tiling four times before moving to the next one
-    #      passnum = (i + 3) // 4
-    # else:
-    #      passnum = i
-    # tiles = rotate_tiling(base_tiles, passnum)
+    print(f"Beginning iteration {i} by loading tiling...")
 
-    # Booleans for determining which tiles to keep.
-    # Margin makes sure we don't end up with tiles that are "in bounds"
-    # but because of the circular shape are off the corner of the
-    # region and don't actually cover any of the targets (which crashes fiberassign)
-    # tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-    # tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-    # tiles_subset = tiles[tiles_in_ra & tiles_in_dec]
     this_date = tiles["TIMESTAMP_YMD"] == timestamp
     tiles_subset = tiles[this_date & tiles["IN_DESI"]]
 

@@ -8,6 +8,7 @@ import healpy as hp
 
 # DESI imports
 from desitarget.mtl import make_mtl, get_utc_date, make_ledger_in_hp
+from desitarget.targets import encode_targetid, decode_targetid
 
 # stdlib imports
 from importlib import resources
@@ -169,7 +170,7 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None):
+def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -191,6 +192,12 @@ def initialize_mtl(base_tbl, save_dir=None):
        `make_ledger_hp`, which generates the MTLs and splits them by healpix,
        saving them in the `save_dir`. Defaults to None.
 
+    stds_catalog : str or :class:`~pathlib.Path`
+        If given, the a catalog that contains standard stars. Standard
+         stars are appended to the input table before MTL generation. Only
+         standard stars that lie in the healpix covering base_tbl are kept.
+         Defaults to None.
+
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table`
@@ -202,7 +209,7 @@ def initialize_mtl(base_tbl, save_dir=None):
     # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
     # For targetids we will use the indices, they just need to be unique and non negative
     tbl = base_tbl.copy() # Don't want to mutate input
-    tbl["TARGETID"] = np.arange(len(tbl))
+    tbl["TARGETID"] = encode_targetid(np.arange(len(tbl)), release=9010, mock=1)
 
     # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
     # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
@@ -227,6 +234,14 @@ def initialize_mtl(base_tbl, save_dir=None):
     hpx = hp.ang2pix(nside, theta, phi, nest=True)
     pixlist = np.unique(hpx)
 
+
+    if stds_tbl is not None:
+        theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
+        hpx = hp.ang2pix(nside, theta, phi, nest=True)
+        keep_stds = np.isin(hpx, pixlist)
+        keep_cols = tbl.colnames
+        tbl = vstack([tbl, stds_tbl[keep_stds][keep_cols]])
+
     target_name = "LAE"
     targetmask = load_target_yaml("targetmask.yaml")
 
@@ -246,18 +261,22 @@ def initialize_mtl(base_tbl, save_dir=None):
             hpx = mtl_loc.name.split("-")[-1].split(".")[0]
             temp_tbl["HEALPIX"] = int(hpx)
 
+            is_lae = temp_tbl["TARGET_STATE"] != "CALIB"
+
             # Update to custom target type.
             # temp_tbl["DESI_TARGET"] = 2**22
-            temp_tbl["TARGET_STATE"] = "LAE|UNOBS"
-            temp_tbl["NUMOBS_INIT"] = targetmask["numobs"]["desi_mask"][target_name]
-            temp_tbl["NUMOBS_MORE"] = targetmask["numobs"]["desi_mask"][target_name]
+            temp_tbl["TARGET_STATE"][is_lae] = "LAE|UNOBS"
+            temp_tbl["NUMOBS_INIT"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
+            temp_tbl["NUMOBS_MORE"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
 
             temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
             mtl_loc.unlink()
 
             mtl_all = vstack([mtl_all, temp_tbl])
 
-        mtl_all.write(base_dir / "targets.fits", overwrite=True)
+        # Want the gloval MTL sorted on TARGETID too.
+        mtl_all.sort("TARGETID")
+        mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:
         mtl_all = make_mtl(tbl, "DARK")
 
