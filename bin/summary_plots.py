@@ -49,7 +49,7 @@ def load_mtl(mtl_loc):
 
 def get_num_tiles(top_dir, n_passes):
     n_tiles = [0]
-    for fname in top_dir.glob("tiles-*.fits"):
+    for fname in sorted(top_dir.glob("tiles-*.fits")):
     # for i in range(1, n_passes + 1):
     #     tile_file = top_dir / f"tiles-pass-{i}.fits"
         with fitsio.FITS(fname) as h:
