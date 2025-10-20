@@ -169,20 +169,25 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     with Pool(args.nproc) as p:
          p.starmap(fiberassign_tile, fiberassign_params)
 
-    assigned_tids = np.array([])
+    assigned_tids = []
     # TODO we can parallelize this because the order of assigned tids is irrelevant
     for tileid in tiles_subset["TILEID"]:
         tileid = str(tileid)
         fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
         print(f"Loading tids from {fba_file.name}")
         with fitsio.FITS(fba_file) as h:
-
                 tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
                 device = h["FASSIGN"]["DEVICE_TYPE"][:]
                 # Cutting on "not ETC" probably not necessary but just to be safe.
                 tids = tids[(tids > 0) & (device != "ETC")]
+                assigned_tids.append(tids)
 
-                assigned_tids = np.concatenate([assigned_tids, tids])
+                print(f"Loaded {len(tids)} from {fba_file}")
+
+    assigned_tids = np.concatenate(assigned_tids)
+
+    unique, counts = np.unique(assigned_tids, return_counts=True)
+    print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique)}, {np.unique(counts)}")
 
     # TODO propagate timestamp to mtl updates.
     mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=False)
