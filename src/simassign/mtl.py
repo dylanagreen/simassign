@@ -15,7 +15,7 @@ from importlib import resources
 from pathlib import Path
 import yaml
 
-def update_mtl(mtl, tids_to_update, use_desitarget=False, verbose=False):
+def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbose=False):
     """
     Update an MLT after taking an observation of `tids_to_update`.
 
@@ -28,11 +28,19 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False, verbose=False):
     tids_to_update : :class:`~numpy.array`
         List of targetids to update in the MTL.
 
+    timestamp : str
+        Timestamp to associate with this MTL update, used for suvery simulation
+        purposes. Defaults to None, which sets the timestamp to the time when
+        this update code is actually run.
+
     use_desitarget : bool
         Whether or not to use `desitarget.make_mtl` to update MTL or to
         use the internal logic defined in the simassign targetmask.yaml
         file. Using `desitarget.make_mtl` restricts the update loop to use
         specifically the QSO target class of desitarget. Defaults to False.
+
+   verbose : bool
+        Verbosely print information on each update. Defaults to False.
 
     Returns
     -------
@@ -111,7 +119,10 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False, verbose=False):
             mtl_updates["TARGET_STATE"][this_target & is_complete] = f"{name}|DONE"
 
         # This is important for storing the history of the MTL
-        mtl_updates["TIMESTAMP"] = get_utc_date("main")
+        if timestamp is not None:
+            mtl_updates["TIMESTAMP"] = timestamp
+        else:
+            mtl_updates["TIMESTAMP"] = get_utc_date("main")
 
         # We won't update the redshift or anything, it's not really relevant to
         # fiberassign anyway.

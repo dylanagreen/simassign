@@ -5,10 +5,11 @@
 
 # python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-100-big-nproc-32-inputtiles-withstds/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
 
 # TODO proper docstring
 import argparse
+from datetime import datetime, timedelta
 from multiprocessing import Pool
 import time
 
@@ -120,13 +121,15 @@ def fiberassign_tile(targ_loc, tile_loc, runtime):
               tile_loc,
               "--dir",
               fba_loc,
-              # "--sky_per_petal",
-              # 0, # Use the default for this
-              # "--standards_per_petal",
-              # 0,
+            #   "--sky_per_petal",
+            #   40, # Use the default for this
+            #   "--standards_per_petal",
+            #   10,
               "--overwrite",
               "--targets",
               targ_loc,
+            #   "--fba_use_fabs",
+            #   "1",
     ]
 
     fba_args = parse_assign(params)
@@ -153,7 +156,7 @@ curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
 # for i in range(1, args.npass + 1):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
-    print(f"Beginning iteration {i} by loading tiling...")
+    print(f"Beginning night {i} {timestamp} by loading tiling...")
 
     this_date = tiles["TIMESTAMP_YMD"] == timestamp
     tiles_subset = tiles[this_date & tiles["IN_DESI"]]
@@ -190,24 +193,25 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique)}, {np.unique(counts)}")
 
     # TODO propagate timestamp to mtl updates.
-    mtl_all = update_mtl(mtl_all, assigned_tids, use_desitarget=False)
+
+    last_time = datetime.fromisoformat(np.max(tiles_subset["TIMESTAMP"]))
+    last_time += timedelta(hours=1)
+
+    t3 = time.time()
+    mtl_all = update_mtl(mtl_all, assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
+    t4 = time.time()
+    print(f"MTL update took {t4 - t3} seconds...")
 
     # Write updated MTLs by healpix.
     # TODO Seems to me like the way to {do update the global MTL is iterate over it
     # by healpix, and save the updated healpix if there are updated observations
-    # for that healpix.
+    # for that healpix, and not just save all MTLs...
     # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
-    # TODO Saving is embarassingly paralell. Parallelize this.
     hpx_to_update = np.array(np.unique(mtl_all["HEALPIX"]))
     mtls_to_save = [mtl_all[mtl_all["HEALPIX"] == hpx] for hpx in hpx_to_update]
     save_params = zip(mtls_to_save, hpx_to_update)
     with Pool(args.nproc) as p:
          p.starmap(save_mtl, save_params)
-
-    # for hpx in :
-    #     print(f"Saving healpix {hpx}")
-    #     this_hpx = mtl_all["HEALPIX"] == hpx
-    #     mtl_all[this_hpx].write(hp_base / f"mtl-dark-hp-{hpx}.fits", overwrite=True)
 
     curr_mtl = deduplicate_mtl(mtl_all)
     curr_mtl.write(base_dir / "targets.fits", overwrite=True)
