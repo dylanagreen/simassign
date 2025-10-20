@@ -15,7 +15,7 @@ from importlib import resources
 from pathlib import Path
 import yaml
 
-def update_mtl(mtl, tids_to_update, use_desitarget=False):
+def update_mtl(mtl, tids_to_update, use_desitarget=False, verbose=False):
     """
     Update an MLT after taking an observation of `tids_to_update`.
 
@@ -97,8 +97,8 @@ def update_mtl(mtl, tids_to_update, use_desitarget=False):
 
             this_target = (mtl_updates["DESI_TARGET"] & bit) != 0
 
-            # TODO only do this if some verbose mode is on.
-            print(f"update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
+            if verbose:
+                print(f"Update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
 
             # lazily assume that the target class is correct and we want more zgood.
             # Do this before is_complete so that is_Complete overrides in the
@@ -274,16 +274,23 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
 
             mtl_all = vstack([mtl_all, temp_tbl])
 
-        # Want the gloval MTL sorted on TARGETID too.
+        # Want the global MTL sorted on TARGETID too.
         mtl_all.sort("TARGETID")
         mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:
         mtl_all = make_mtl(tbl, "DARK")
+        is_lae = mtl_all["TARGET_STATE"] != "CALIB"
 
         # Destiny is ours to choose.
-        mtl_all["TARGET_STATE"] = "LAE|UNOBS"
-        mtl_all["NUMOBS_INIT"] = targetmask["numobs"]["desi_mask"][target_name]
-        mtl_all["NUMOBS_MORE"] = targetmask["numobs"]["desi_mask"][target_name]
+        mtl_all["TARGET_STATE"][is_lae] = "LAE|UNOBS"
+        mtl_all["NUMOBS_INIT"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
+        mtl_all["NUMOBS_MORE"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
+
+        # Relcaulate this to include the standards.
+        theta, phi = np.radians(90 - mtl_all["DEC"]), np.radians(mtl_all["RA"])
+        hpx = hp.ang2pix(nside, theta, phi, nest=True)
 
         mtl_all["HEALPIX"] = hpx
+
+        mtl_all.sort("TARGETID")
     return mtl_all
