@@ -123,10 +123,10 @@ def fiberassign_tile(targ_loc, tile_loc, runtime):
               tile_loc,
               "--dir",
               fba_loc,
-              "--sky_per_petal",
-              40, # Use the default for this
-              "--standards_per_petal",
-              10,
+            #   "--sky_per_petal",
+            #   40, # Use the default for this
+            #   "--standards_per_petal",
+            #   10,
               "--overwrite",
               "--targets",
               targ_loc,
@@ -194,9 +194,8 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     unique, counts = np.unique(assigned_tids, return_counts=True)
     print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique)}, {np.unique(counts)}")
 
-    # TODO propagate timestamp to mtl updates.
-
-    last_time = datetime.fromisoformat(np.max(tiles_subset["TIMESTAMP"]))
+    ts = [datetime.fromisoformat(t) for t in tiles_subset["TIMESTAMP"]]
+    last_time = max(ts)
     last_time += timedelta(hours=1)
 
     t3 = time.time()
