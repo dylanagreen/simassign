@@ -38,10 +38,10 @@ from simassign.io import load_catalog
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ramax", required=True, type=float, help="maximum RA angle to assign over.")
-parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle to assign over.")
-parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
-parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
+parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
+parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
+parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
+parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
@@ -64,8 +64,10 @@ print(f"Using {targetmask}")
 rng = np.random.default_rng(91701)
 if args.density:
     ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
-else:
+elif (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
     ra, dec = load_catalog(args.catalog, [args.ramin, args.ramax, args.decmin, args.decmax])
+else:
+    ra, dec = load_catalog(args.catalog)
 
 print(f"Generated {len(ra)} randoms...")
 
@@ -121,10 +123,10 @@ def fiberassign_tile(targ_loc, tile_loc, runtime):
               tile_loc,
               "--dir",
               fba_loc,
-            #   "--sky_per_petal",
-            #   40, # Use the default for this
-            #   "--standards_per_petal",
-            #   10,
+              "--sky_per_petal",
+              40, # Use the default for this
+              "--standards_per_petal",
+              10,
               "--overwrite",
               "--targets",
               targ_loc,
@@ -214,7 +216,7 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
          p.starmap(save_mtl, save_params)
 
     curr_mtl = deduplicate_mtl(mtl_all)
-    curr_mtl.write(base_dir / "targets.fits", overwrite=True)
+    # curr_mtl.write(base_dir / "targets.fits.gz", overwrite=True)
 
 print("Done!")
 t_end = time.time()
