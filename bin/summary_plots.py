@@ -41,7 +41,10 @@ colors = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC
 # TODO these functions should be moved to the main package.
 def get_all_mtl_locs(top_dir):
     hp_base = top_dir / "hp" / "main" / "dark"
-    return list(hp_base.glob("*.fits"))
+    fnames = list(hp_base.glob("*.fits"))
+    if len(fnames) == 0:
+        fnames = list(hp_base.glob("*.ecsv"))
+    return fnames
 
 def load_mtl(mtl_loc):
     temp_tbl = Table.read(mtl_loc)
@@ -130,7 +133,9 @@ if args.pertile:
         # Scale the 1 goal to be x4 and the 4 goal to be x1 so they're on the same scale.
         if i < 2:
             lw = 2
-            plt.plot(ntiles_arrs[i] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i])
+            print(ntiles_arrs[i].shape, fraction_arrs[i].shape, args.labels[i] )
+
+            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i])
         else:
             lw = 2
             plt.plot(ntiles_arrs[i] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i], markerfacecolor='white', mew=2)
@@ -215,3 +220,5 @@ if args.targs:
 
 
 # python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Per Night" "Original"
+
+# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Test" "With STDs"
