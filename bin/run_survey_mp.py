@@ -5,7 +5,7 @@
 
 # python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-30pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
 
 # TODO proper docstring
 import argparse
@@ -22,6 +22,7 @@ import fitsio
 # DESI imports
 from desimodel.io import load_tiles
 from desimodel.focalplane import get_tile_radius_deg
+from desimodel.footprint import tiles2pix
 from desitarget.mtl import make_mtl, make_ledger_in_hp
 from desitarget.targetmask import desi_mask, obsconditions
 from fiberassign.scripts.assign import parse_assign, run_assign_full, run_assign_bytile
@@ -69,7 +70,7 @@ elif (args.ramin is not None) and (args.ramax is not None) and (args.decmin is n
 else:
     ra, dec = load_catalog(args.catalog)
 
-print(f"Generated {len(ra)} randoms...")
+print(f"Generated {len(ra)} targets...")
 
 tbl = Table()
 tbl["RA"] = ra
@@ -79,34 +80,22 @@ nside = 64
 theta, phi = np.radians(90 - dec), np.radians(ra)
 pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
-print(f"{len(pixlist)} HEALpix to write.")
+print(f"{len(pixlist)} HEALpix covered by catalog.")
 
 if args.stds is not None:
     stds_catalog = Table.read(args.stds)
-    mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog)
+    mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True)
 else:
-    mtl_all = initialize_mtl(tbl, args.outdir)
+    mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True)
+
 t2 = time.time()
 
 # Directories for later
 base_dir = Path(args.outdir)
 hp_base = base_dir / "hp" / "main" / "dark"
 
-# Generate the tiling for this patch of sky.
-# Load from the FITs file to match fiber assign expectations.
-# tiles = Table(load_tiles(surveyops=False)) # NOTE: By default loads only tiles in the DESI footprint.
-# tiles = load_tiles()
-
-# Load the geometry superset to get the tiling of the entire sky.
-# tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
-# tiles = Table(tiles)
 tile_loc = Path(args.tiles)
 tiles = Table.read(tile_loc)
-
-# This ensures we only get one tiling of the sky to use as a base.
-zero_pass = tiles["PASS"] == 0
-dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
-base_tiles = tiles[zero_pass & dark_tile]
 
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
@@ -150,20 +139,32 @@ def load_tids_from_fba(fba_loc):
 
 def save_mtl(mtl_to_save, hpx):
     print(f"Saving healpix {hpx}")
-    mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.fits", overwrite=True)
+    mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
 
 
-curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
+# curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
+
+print(f"cols: {mtl_all[list(mtl_all.keys())[0]].colnames}")
 
 # for i in range(1, args.npass + 1):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
+times = {"gen_curr_mtl": [], "assign": [],  "update_mtl": [], "save_mtl": [],}  # For profiling.
 for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     print(f"Beginning night {i} {timestamp} by loading tiling...")
 
     this_date = tiles["TIMESTAMP_YMD"] == timestamp
     tiles_subset = tiles[this_date & tiles["IN_DESI"]]
 
-    print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles to run")
+    hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique frmo the return of tiles2pix
+    hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
+
+    print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
+
+    # TODO run fiberassign in a way that we can skip saving target files.
+    t_start_curr = time.time()
+    curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
+    t_end_curr = time.time()
+    times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
     targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
     # Worthwhile to keep this for summary plot purposes
@@ -175,7 +176,9 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
          p.starmap(fiberassign_tile, fiberassign_params)
 
     assigned_tids = []
+    t_start_assign = time.time()
     # TODO we can parallelize this because the order of assigned tids is irrelevant
+    # TODO find a way to do this without having to read (when we run fiberassign without io)
     for tileid in tiles_subset["TILEID"]:
         tileid = str(tileid)
         fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
@@ -190,6 +193,8 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
                 print(f"Loaded {len(tids)} from {fba_file}")
 
     assigned_tids = np.concatenate(assigned_tids)
+    t_end_assign = time.time()
+    times["assign"].append(t_end_assign - t_start_assign)
 
     unique, counts = np.unique(assigned_tids, return_counts=True)
     print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique)}, {np.unique(counts)}")
@@ -199,8 +204,11 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     last_time += timedelta(hours=1)
 
     t3 = time.time()
-    mtl_all = update_mtl(mtl_all, assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
+    # TODO parallelize
+    for hpx in hpx_night:
+        mtl_all[hpx] = update_mtl(mtl_all[hpx], assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
     t4 = time.time()
+    times["update_mtl"].append(t4 - t3)
     print(f"MTL update took {t4 - t3} seconds...")
 
     # Write updated MTLs by healpix.
@@ -208,13 +216,15 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     # by healpix, and save the updated healpix if there are updated observations
     # for that healpix, and not just save all MTLs...
     # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
-    hpx_to_update = np.array(np.unique(mtl_all["HEALPIX"]))
-    mtls_to_save = [mtl_all[mtl_all["HEALPIX"] == hpx] for hpx in hpx_to_update]
-    save_params = zip(mtls_to_save, hpx_to_update)
+    mtls_to_save = [mtl_all[hpx] for hpx in hpx_night]
+    save_params = zip(mtls_to_save, hpx_night)
     with Pool(args.nproc) as p:
          p.starmap(save_mtl, save_params)
+    t5 = time.time()
+    times["save_mtl"].append(t5 - t4)
+    print(f"Saving MTL took {t5 - t4} seconds...")
 
-    curr_mtl = deduplicate_mtl(mtl_all)
+    # curr_mtl = deduplicate_mtl(mtl_all)
     # curr_mtl.write(base_dir / "targets.fits.gz", overwrite=True)
 
 print("Done!")
@@ -222,3 +232,6 @@ t_end = time.time()
 print(f"Init: \t\t\t{t2 - t_start} \t {(t2 - t_start) / 60}")
 print(f"Full: \t\t\t{t_end - t_start} \t {(t_end - t_start) / 60}")
 print(f"Average per night: \t{(t_end - t2) / n_nights}\t {(t_end - t2) / (n_nights * 60)}")
+
+for k in times.keys():
+    print(f"Average {k}: {np.mean(times[k])}")

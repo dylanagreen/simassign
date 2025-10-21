@@ -418,8 +418,8 @@ def get_nobs_arr(mtl):
         at_least_arr[6, 3] indicates
         how many targets have 3 *or more* exposures after 6 passes.
     """
-    timestamps = np.array(mtl["TIMESTAMP"])
-    ts = np.array([datetime.fromisoformat(x.decode()) for x in timestamps])
+    timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
+    ts = np.array([datetime.fromisoformat(x) for x in timestamps])
     unique_timestamps = np.unique(ts)
 
     # Timestamps correspond with when the MTL was created/updated
@@ -428,7 +428,8 @@ def get_nobs_arr(mtl):
     bins = np.arange(-0.5, len(unique_timestamps) - 0.4, 1) # "binning" for counting numbers of observations of targets.
     nobs = []
     for time in unique_timestamps:
-        keep_rows = ts <= time
+        # Standards have large desitarget numbers
+        keep_rows = (ts <= time) & (mtl["DESI_TARGET"] < 2**10)
         # print(sum(keep_rows))
 
         trunc_mtl = deduplicate_mtl(mtl[keep_rows])

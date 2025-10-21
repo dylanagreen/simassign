@@ -13,6 +13,7 @@ from desitarget.targets import encode_targetid, decode_targetid
 # stdlib imports
 from importlib import resources
 from pathlib import Path
+import shutil
 import yaml
 
 def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbose=False):
@@ -112,6 +113,7 @@ def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbos
             # Do this before is_complete so that is_Complete overrides in the
             # case of 1 requested exposure.
             mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
+            mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U12") # So we don't truncate status.
             mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
 
             # Set priority for done targets.
@@ -181,7 +183,7 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True):
+def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, as_dict=False):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -260,7 +262,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True):
     hpx = hp.ang2pix(nside, theta, phi, nest=True)
     pixlist = np.unique(hpx)
 
-
     if stds_tbl is not None:
         theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
         hpx = hp.ang2pix(nside, theta, phi, nest=True)
@@ -274,14 +275,20 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True):
     print(f"{len(pixlist)} HEALpix.")
     if save_dir is not None:
         base_dir = Path(save_dir)
+        if base_dir.exists(): shutil.rmtree(base_dir) # Removes an old run in the same dir.
 
         # Run mtl to split them into healpix ledgers.
         make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
 
         hp_base = base_dir / "hp" / "main" / "dark"
-        mtl_all = Table()
+
+        if as_dict:
+            mtl_all = {}
+        else:
+            mtl_all = Table()
+
         for mtl_loc in hp_base.glob("*.ecsv"):
-            print(f"Moving {mtl_loc.name} to fits")
+            print(f"Loading {mtl_loc.name}")
             temp_tbl = Table.read(mtl_loc)
             # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
             hpx = mtl_loc.name.split("-")[-1].split(".")[0]
@@ -297,13 +304,16 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True):
 
             temp_tbl["TIMESTAMP"] = "2024-12-01T00:00:00+00:00" # Want the init timemstamp to be early.
 
-            temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
-            mtl_loc.unlink()
+            temp_tbl.write(mtl_loc, overwrite=True) # Keep the original file extension.
+            # mtl_loc.unlink()
 
-            if return_mtl_all: mtl_all = vstack([mtl_all, temp_tbl])
+            if return_mtl_all and not as_dict:
+                mtl_all = vstack([mtl_all, temp_tbl])
+            elif as_dict:
+                mtl_all[int(hpx)] = temp_tbl
 
         # Want the global MTL sorted on TARGETID too.
-        if return_mtl_all:
+        if return_mtl_all and not as_dict:
             mtl_all.sort("TARGETID")
             mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:
