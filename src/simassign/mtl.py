@@ -181,7 +181,7 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
+def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -209,6 +209,15 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
          standard stars that lie in the healpix covering base_tbl are kept.
          Defaults to None.
 
+    return_mtl_all : bool
+        Whether to return the initialized, concatenated mtl_all or not. In
+        some cases when the MTL is large it is more efficient to only
+        save them per healpix, and load them as necessary instead of storing
+        the entire MTL in memory at once. Note: if save_dir is not provided
+        and this is set to false, this function functionally does nothing
+        except waste memory and time, since the MTL will not be saved
+        nor returned. Defaults to True.
+
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table`
@@ -220,7 +229,13 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
     # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
     # For targetids we will use the indices, they just need to be unique and non negative
     tbl = base_tbl.copy() # Don't want to mutate input
-    tbl["TARGETID"] = encode_targetid(np.arange(len(tbl)), release=9010, mock=1)
+    idcs = np.arange(len(tbl))
+    obj_bits = 2**22
+    objid = idcs % obj_bits
+    brickid = idcs // obj_bits
+    tbl["TARGETID"] = encode_targetid(objid, brickid, release=9010, mock=1)
+
+    assert len(tbl) == len(np.unique(tbl["TARGETID"])), "some non unique targetids"
 
     # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
     # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
@@ -280,14 +295,17 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
             temp_tbl["NUMOBS_INIT"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
             temp_tbl["NUMOBS_MORE"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
 
+            temp_tbl["TIMESTAMP"] = "2024-12-01T00:00:00+00:00" # Want the init timemstamp to be early.
+
             temp_tbl.write(hp_base / mtl_loc.name.replace(".ecsv", ".fits"), overwrite=True)
             mtl_loc.unlink()
 
-            mtl_all = vstack([mtl_all, temp_tbl])
+            if return_mtl_all: mtl_all = vstack([mtl_all, temp_tbl])
 
         # Want the global MTL sorted on TARGETID too.
-        mtl_all.sort("TARGETID")
-        mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
+        if return_mtl_all:
+            mtl_all.sort("TARGETID")
+            mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:
         mtl_all = make_mtl(tbl, "DARK")
         is_lae = mtl_all["TARGET_STATE"] != "CALIB"
@@ -304,4 +322,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None):
         mtl_all["HEALPIX"] = hpx
 
         mtl_all.sort("TARGETID")
-    return mtl_all
+
+    if return_mtl_all:
+        return mtl_all
+    return
