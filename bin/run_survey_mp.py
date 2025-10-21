@@ -10,7 +10,7 @@
 # TODO proper docstring
 import argparse
 from datetime import datetime, timedelta
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 import time
 
 # Non-DESI Imports
@@ -103,7 +103,7 @@ tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 fba_loc = str(base_dir / "fba")
 
-def fiberassign_tile(targ_loc, tile_loc, runtime):
+def fiberassign_tile(targ_loc, tile_loc, runtime, tileid):
     params = ["--rundate",
               runtime,
               "--overwrite",
@@ -125,8 +125,18 @@ def fiberassign_tile(targ_loc, tile_loc, runtime):
 
     fba_args = parse_assign(params)
     run_assign_full(fba_args)
-    # Don't need to return anything because fiberassign writes to files
-    # which we'll load later.
+
+    # TODO find a way to do this without having to read (when we run fiberassign without io)
+    # After assigning, load that fiber assignment and return the tids.
+    fba_file = base_dir / "fba" / f"fba-{str(tileid).zfill(6)}.fits"
+    with fitsio.FITS(fba_file) as h:
+            tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
+            device = h["FASSIGN"]["DEVICE_TYPE"][:]
+            # Cutting on "not ETC" probably not necessary but just to be safe.
+            tids = tids[(tids > 0) & (device != "ETC")]
+            print(f"Loaded {len(tids)} from {fba_file}")
+
+    return tids
 
 def load_tids_from_fba(fba_loc):
     with fitsio.FITS(fba_loc) as h:
@@ -141,8 +151,6 @@ def save_mtl(mtl_to_save, hpx):
     print(f"Saving healpix {hpx}")
     mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
 
-
-# curr_mtl = mtl_all # It starts with unique rows per target id so this is fine.
 
 print(f"cols: {mtl_all[list(mtl_all.keys())[0]].colnames}")
 
@@ -171,26 +179,27 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     tile_loc = base_dir / f"tiles-{timestamp}.fits"
     tiles_subset.write(tile_loc, overwrite=True)
 
-    fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"])
-    with Pool(args.nproc) as p:
-         p.starmap(fiberassign_tile, fiberassign_params)
-
-    assigned_tids = []
     t_start_assign = time.time()
-    # TODO we can parallelize this because the order of assigned tids is irrelevant
-    # TODO find a way to do this without having to read (when we run fiberassign without io)
-    for tileid in tiles_subset["TILEID"]:
-        tileid = str(tileid)
-        fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
-        print(f"Loading tids from {fba_file.name}")
-        with fitsio.FITS(fba_file) as h:
-                tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
-                device = h["FASSIGN"]["DEVICE_TYPE"][:]
-                # Cutting on "not ETC" probably not necessary but just to be safe.
-                tids = tids[(tids > 0) & (device != "ETC")]
-                assigned_tids.append(tids)
+    fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"], tiles_subset["TILEID"])
+    with Pool(args.nproc) as p:
+         assigned_tids = p.starmap(fiberassign_tile, fiberassign_params)
 
-                print(f"Loaded {len(tids)} from {fba_file}")
+    # assigned_tids = []
+
+    # TODO we can parallelize this because the order of assigned tids is irrelevant
+
+    # for tileid in tiles_subset["TILEID"]:
+    #     tileid = str(tileid)
+        # fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
+        # print(f"Loading tids from {fba_file.name}")
+        # with fitsio.FITS(fba_file) as h:
+        #         tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
+        #         device = h["FASSIGN"]["DEVICE_TYPE"][:]
+        #         # Cutting on "not ETC" probably not necessary but just to be safe.
+        #         tids = tids[(tids > 0) & (device != "ETC")]
+        #         assigned_tids.append(tids)
+
+        #         print(f"Loaded {len(tids)} from {fba_file}")
 
     assigned_tids = np.concatenate(assigned_tids)
     t_end_assign = time.time()
