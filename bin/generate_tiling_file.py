@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-# python generate_tiling_file.py --npass 50 --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/
+# python generate_tiling_file.py --npass 30 -o /pscratch/sd/d/dylang/fiberassign/ --fourex --collapse
 
 import argparse
 from datetime import datetime, timedelta
 
 # Non-DESI Imports
 import numpy as np
-from astropy.table import Table, vstack, join
+from astropy.table import Table, vstack, unique
 
 # DESI imports
 from desimodel.io import load_tiles
@@ -22,13 +22,14 @@ sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.util import rotate_tiling
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ramax", required=True, type=float, help="maximum RA angle to assign over.")
-parser.add_argument("--ramin", required=True, type=float, help="minimum RA angle to assign over.")
-parser.add_argument("--decmax", required=True, type=float, help="maximum DEC angle to assign over.")
-parser.add_argument("--decmin", required=True, type=float, help="minimum DEC angle to assign over.")
+parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
+parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
+parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
+parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
+parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 args = parser.parse_args()
 
@@ -59,14 +60,20 @@ for i in range(1, args.npass + 1):
     # Margin makes sure we don't end up with tiles that are "in bounds"
     # but because of the circular shape are off the corner of the
     # region and don't actually cover any of the targets (which crashes fiberassign)
-    tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-    tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-    not_in_zone = ~(tiles_in_ra & tiles_in_dec)
-    tiles["IN_DESI"][not_in_zone] = False
+    if (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
+        # Only run this if the box is actually passed in.
+        tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
+        tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
+        not_in_zone = ~(tiles_in_ra & tiles_in_dec)
+        tiles["IN_DESI"][not_in_zone] = False
 
     pass_tilings.append(tiles)
 
 tiles = vstack(pass_tilings)
+if args.collapse:
+    tiles = unique(tiles, "TILEID")
+    tiles.sort("TILEID")
+
 n_tiles = np.sum(tiles["IN_DESI"])
 print(f"{n_tiles} tiles IN_DESI")
 print(f"{len(tiles)} total tiles")
