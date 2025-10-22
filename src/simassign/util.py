@@ -425,21 +425,18 @@ def get_nobs_arr(mtl):
     # Timestamps correspond with when the MTL was created/updated
     # So we can loop over the timestamps to get information from each
     # fiberassign run.
-    bins = np.arange(-0.5, len(unique_timestamps) - 0.4, 1) # "binning" for counting numbers of observations of targets.
-    nobs = []
-    for time in unique_timestamps:
-        # Standards have large desitarget numbers
-        keep_rows = (ts <= time) & (mtl["DESI_TARGET"] < 2**10)
+    nobs = len(unique_timestamps)
+    nobs_arr = np.zeros((nobs, nobs))
+    for i, time in enumerate(unique_timestamps):
+        keep_rows = ts <= time
         # print(sum(keep_rows))
 
         trunc_mtl = deduplicate_mtl(mtl[keep_rows])
-        h, _ = np.histogram(trunc_mtl["NUMOBS"], bins=bins)
-        nobs.append(h)
-
-    obs_arr = np.asarray(nobs)
+        c = np.bincount(trunc_mtl["NUMOBS"], minlength=nobs)
+        nobs_arr[i, :] = c
     # Reverse to go max down to zero, then sum to get how many have at least that number exposures
     # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
     # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
-    at_least_n = np.cumsum(obs_arr[:, ::-1], axis=1)[:, ::-1]
+    at_least_n = np.cumsum(nobs_arr[:, ::-1], axis=1)[:, ::-1]
 
-    return obs_arr, at_least_n
+    return nobs_arr, at_least_n
