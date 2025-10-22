@@ -1,3 +1,6 @@
+# python trim_catalog_to_survey.py /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-50pass-5000deg-superset.ecsv --tiles
+
+# python trim_catalog_to_survey.py /pscratch/sd/d/dylang/fiberassign/lya-colore-lae.fits -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/lya-colore-lae-density1200-area5000.fits --matchdensity 1200
 import argparse
 from pathlib import Path
 
@@ -68,13 +71,34 @@ sgc_points = np.array([[304.844, -17.566],
 
 parser = argparse.ArgumentParser()
 parser.add_argument("catalog", type=str, help="A catalog of objects to use to trim.")
-parser.add_argument("--tiles", required=False, action="store_true", help="whether this catalog is tiles or not. If tiles, will set IN_DESI = False instead of truncating.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save the resulting file.")
+
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("--tiles", required=False, action="store_true", help="whether this catalog is tiles or not. If tiles, will set IN_DESI = False instead of truncating.")
+group.add_argument("--matchdensity", required=False, type=int, default=1000, help="output density to match in n_targ per sq deg.")
 args = parser.parse_args()
 
 catalog_loc = Path(args.catalog)
 
 data_tbl = Table.read(catalog_loc)
+
+# Downsample to density first
+sky_area = 360**2 / np.pi
+density = len(data_tbl) / sky_area
+
+idcs = np.arange(len(data_tbl))
+rng = np.random.default_rng(91701)
+rng.shuffle(idcs)
+
+# Can't overample above the density we have.
+target_density = np.min([density, args.matchdensity])
+print(f"Sampling to density {target_density}...")
+
+n_tot = int(args.matchdensity * sky_area)
+keep_idcs = idcs[:n_tot]
+data_tbl = data_tbl[keep_idcs]
+
+print(f"Achieved density {len(data_tbl) / sky_area}.")
 
 # Extracting the points as a 2d array
 data_ra = np.array(data_tbl["RA"], dtype=float)
@@ -94,13 +118,16 @@ data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower 
 p_sgc = mpPath(sgc_points)
 in_sgc = p_sgc.contains_points(data_points_rotate)
 
+
 print("Saving...")
 if args.tiles:
     data_tbl["IN_DESI"] = False
     data_tbl["IN_DESI"][in_ngc | in_sgc] = True
     print(np.sum(data_tbl["IN_DESI"]))
-    data_tbl.write(args.out, overwrite=True)
-
+    data_tbl.sort("TILEID")
 else:
-    data_out = data_tbl[in_ngc | in_sgc]
-    data_out.write(args.out, overwrite=True)
+    data_tbl = data_tbl[in_ngc | in_sgc]
+
+print(f"{len(data_tbl)} final rows.")
+
+data_tbl.write(args.out, overwrite=True)
