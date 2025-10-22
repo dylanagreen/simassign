@@ -5,7 +5,7 @@
 
 # python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
 
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-30pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 64  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-30pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
 
 # TODO proper docstring
 import argparse
@@ -15,7 +15,7 @@ import time
 
 # Non-DESI Imports
 import numpy as np
-from astropy.table import Table, vstack, join
+from astropy.table import Table, vstack, unique
 import healpy as hp
 import fitsio
 
@@ -161,9 +161,9 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     print(f"Beginning night {i} {timestamp} by loading tiling...")
 
     this_date = tiles["TIMESTAMP_YMD"] == timestamp
-    tiles_subset = tiles[this_date & tiles["IN_DESI"]]
+    tiles_subset = unique(tiles[this_date & tiles["IN_DESI"]], "TILEID") # Unique to avoid 2 processes assigning the same tile.
 
-    hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique frmo the return of tiles2pix
+    hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique from the return of tiles2pix
     hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
 
     print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
@@ -205,8 +205,8 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     t_end_assign = time.time()
     times["assign"].append(t_end_assign - t_start_assign)
 
-    unique, counts = np.unique(assigned_tids, return_counts=True)
-    print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique)}, {np.unique(counts)}")
+    unique_tids, counts = np.unique(assigned_tids, return_counts=True)
+    print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
 
     ts = [datetime.fromisoformat(t) for t in tiles_subset["TIMESTAMP"]]
     last_time = max(ts)
@@ -221,9 +221,6 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     print(f"MTL update took {t4 - t3} seconds...")
 
     # Write updated MTLs by healpix.
-    # TODO Seems to me like the way to {do update the global MTL is iterate over it
-    # by healpix, and save the updated healpix if there are updated observations
-    # for that healpix, and not just save all MTLs...
     # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
     mtls_to_save = [mtl_all[hpx] for hpx in hpx_night]
     save_params = zip(mtls_to_save, hpx_night)
