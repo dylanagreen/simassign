@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
+import time
 
 # Non DESI imports
 from astropy.table import Table, vstack
@@ -32,6 +33,7 @@ parser.add_argument("--hist", required=False, action="store_true", help="hist of
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
 parser.add_argument("--density_assign", required=False, action="store_true", help="use density of assigned targets as y axis instead of fraction.")
 parser.add_argument("--targs", required=False, action="store_true", help="plots of targets colored by number observations.")
+parser.add_argument("--use_marker", required=False, action="store_true", help="use the marker when making the plots.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated plots.")
 args = parser.parse_args()
 
@@ -50,7 +52,7 @@ def load_mtl(mtl_loc):
     temp_tbl = Table.read(mtl_loc)
     return temp_tbl
 
-def get_num_tiles(top_dir, n_passes):
+def get_num_tiles(top_dir):
     n_tiles = [0]
     for fname in sorted(top_dir.glob("tiles-*.fits")):
     # for i in range(1, n_passes + 1):
@@ -59,35 +61,73 @@ def get_num_tiles(top_dir, n_passes):
             n_tiles.append(len(h[1][:]))
     return n_tiles
 
+def get_tile_files(mtl_dir):
+    return sorted(mtl_dir.glob("tiles-*.fits"))
 
-# all_mtls = [] # TODO might need this for other summary plots might not...
+def tiles_from_file(fname):
+     with fitsio.FITS(fname) as h:
+            return len(h[1][:])
+
+
+
 nobs_arrs = []
 at_least_arrs = []
 fraction_arrs = []
 ntiles_arrs = []
 mtls = []
-for mtl_loc in args.mtls:
+
+top_axis = False
+
+mtl_bases = [Path(m) for m in args.mtls]
+
+t_start = time.time()
+for mtl_loc in mtl_bases:
     print(f"Loading {mtl_loc}...")
     # mtl = load_mtl_all(Path(mtl_loc), args.verbose)
-    mtl_locs = get_all_mtl_locs(Path(mtl_loc))
+    mtl_locs = get_all_mtl_locs(mtl_loc)
     # print(mtl_locs)
     with Pool(args.nproc) as p:
          mtl_tbls = p.map(load_mtl, mtl_locs)
 
     mtl = vstack(mtl_tbls)
     mtls.append(mtl)
+t_end = time.time()
+print(f"Loading took {t_end - t_start} seconds...")
 
+
+
+print(f"Calculating values...")
+with Pool(args.nproc) as p:
     # Each row is a pass, each column is number of objects with that many exposures
-    nobs, at_least = get_nobs_arr(mtl)
-    nobs_arrs.append(nobs)
-    at_least_arrs.append(at_least)
+    print("N_OBS arr....")
+    t_start = time.time()
+    res = p.map(get_nobs_arr, mtls)
+    # nobs, at_least = get_nobs_arr(mtl)
+    nobs_arrs = [v[0] for v in res]
+    at_least_arrs = [v[1] for v in res]
+
+    t_end = time.time()
+    print(f"Nobs took {t_end - t_start} seconds...")
 
     # [0,0] is the "at least zero exposures with zero iterations" which should include
     # every single object at this point.
-    fraction_arrs.append(at_least / at_least[0, 0])
+    fraction_arrs = [v[1] / v[1][0,0] for v in res]
 
+    t_start = time.time()
+    del res
+
+    ntiles_arrs = []
     if args.pertile:
-        ntiles_arrs.append(np.cumsum(get_num_tiles(Path(mtl_loc), 50)))
+        print("Getting n_tiles...")
+        for mtl_loc in mtl_bases:
+            ntiles_arrs.append(p.map(tiles_from_file, get_tile_files(mtl_loc)))
+
+    t_end = time.time()
+    for i in range(len(ntiles_arrs)):
+        ntiles_arrs[i].insert(0, 0)
+        ntiles_arrs[i] = np.cumsum(ntiles_arrs[i])
+    print(f"Get Tiles took {t_end - t_start} seconds...")
+
 
 if args.perpass:
     # Making the comparison plot between the different runs
@@ -131,32 +171,38 @@ if args.pertile:
         densities.append(density)
 
         # Scale the 1 goal to be x4 and the 4 goal to be x1 so they're on the same scale.
-        if i < 2:
-            lw = 2
-            print(ntiles_arrs[i].shape, fraction_arrs[i].shape, args.labels[i] )
+        # if i < 2:
+        #     lw = 2
+        #     print(ntiles_arrs[i].shape, fraction_arrs[i].shape, args.labels[i] )
 
-            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i])
+        if args.use_marker:
+            marker = "-o"
+            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, marker, lw=1, label=args.labels[i], c=colors[i])
         else:
-            lw = 2
-            plt.plot(ntiles_arrs[i] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i], markerfacecolor='white', mew=2)
+            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=1, label=args.labels[i], c=colors[i])
+        # else:
+        #     lw = 2
+        #     plt.plot(ntiles_arrs[i] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i], markerfacecolor='white', mew=2)
     # np.max(tile_maxes) * 1.1
     plt.legend()
     ax.grid(alpha=0.5)
-    ax.set(xlim=(0, 1200), ylim=(0, np.max(densities)), xlabel="Num. Exposures", ylabel=ylbl)#, title="Fraction of targets with at least $n$ obs")
+    tile_max = np.max([arr[-1] for arr in ntiles_arrs])
+    ax.set(xlim=(0, tile_max), ylim=(0, np.max(densities)), xlabel="Num. Exposures", ylabel=ylbl)#, title="Fraction of targets with at least $n$ obs")
 
     if not args.density_assign:
         plt.axhline(y=0.9 * np.max(densities), c="k")
         plt.axhline(y=0.95 * np.max(densities), c="r")
 
-    z_ax = ax.twiny()
-    z_ax.set(xlim=ax.get_xlim())
-    scale = 14.62439
-    xticks = ax.get_xticks()
-    zticks = np.arange(0, np.max(xticks) * scale, 2000, dtype=int)
-    z_ax.set(xticks=zticks, xticklabels=zticks, xlabel="Exposures Scaled to 5000 sq. deg.")
+    if top_axis:
+        z_ax = ax.twiny()
+        z_ax.set(xlim=ax.get_xlim())
+        scale = 14.62439
+        xticks = ax.get_xticks()
+        zticks = np.arange(0, np.max(xticks) * scale, 2000, dtype=int)
+        z_ax.set(xticks=zticks, xticklabels=zticks, xlabel="Exposures Scaled to 5000 sq. deg.")
 
+        plt.axvline(12600, ls="dashed", c="grey")
 
-    plt.axvline(12600, ls="dashed", c="grey")
     plt.savefig(out_dir / "efficiency_per_tile.jpg", dpi=256, bbox_inches="tight")
 
 if args.hist:
@@ -221,4 +267,4 @@ if args.targs:
 
 # python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Per Night" "Original"
 
-# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Test" "With STDs"
+# python summary_plots.py  --mtls  /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --goals 4 4 -o . --pertile --nproc 32 --labels  "With STDs" "Test"
