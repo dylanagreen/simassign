@@ -4,267 +4,86 @@
 # TODO proper docstring
 # stdlib imports
 import argparse
-from datetime import datetime
-from multiprocessing import Pool
 from pathlib import Path
 import time
 
 # Non DESI imports
-from astropy.table import Table, vstack
-import fitsio
 import matplotlib.pyplot as plt
 import numpy as np
 
-# TODO remove this at some point to point to a generic simassign import.
-import sys
-sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
-from simassign.mtl import deduplicate_mtl
-from simassign.io import *
-from simassign.util import get_nobs_arr
-
 parser = argparse.ArgumentParser()
-parser.add_argument("--mtls", required=True, nargs='+', default=[], help="list of mtls to load and compare.")
-parser.add_argument("--goals", required=True, nargs='+', default=[], help="target number of exposures for each associated fiberassign run/mtl.")
+parser.add_argument("-i", "--indir", required=True, type=str, help="parent directory where all processed data is saved.")
+parser.add_argument("--suffixes", required=True, nargs='+', default=[], help="list of suffixes corresponding to processed mtls to load and compare.")
+parser.add_argument("--goals", required=True, nargs='+', default=[], help="target number of exposures for each associated fiberassign run.")
 parser.add_argument("--labels", required=True, nargs='+', default=[], help="labels to use for each mtl in the output plot.")
 parser.add_argument("--verbose", required=False, action="store_true", help="be verbose when doing everything or not.")
 parser.add_argument("--pertile", required=False, action="store_true", help="plot results per num tile/exposure.")
-parser.add_argument("--perpass", required=False, action="store_true", help="plot results per pass.")
-parser.add_argument("--hist", required=False, action="store_true", help="hist of number of exposures at goal.")
-parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
 parser.add_argument("--density_assign", required=False, action="store_true", help="use density of assigned targets as y axis instead of fraction.")
-parser.add_argument("--targs", required=False, action="store_true", help="plots of targets colored by number observations.")
 parser.add_argument("--use_marker", required=False, action="store_true", help="use the marker when making the plots.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated plots.")
+parser.add_argument("-n", "--name", required=False, type=str, help="name suffix to attach to saved plots.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
 colors = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"] # Okabe and Ito colorbline friendly.
 
-# TODO these functions should be moved to the main package.
-def get_all_mtl_locs(top_dir):
-    hp_base = top_dir / "hp" / "main" / "dark"
-    fnames = list(hp_base.glob("*.fits"))
-    if len(fnames) == 0:
-        fnames = list(hp_base.glob("*.ecsv"))
-    return fnames
-
-def load_mtl(mtl_loc):
-    temp_tbl = Table.read(mtl_loc)
-    return temp_tbl
-
-def get_num_tiles(top_dir):
-    n_tiles = [0]
-    for fname in sorted(top_dir.glob("tiles-*.fits")):
-    # for i in range(1, n_passes + 1):
-    #     tile_file = top_dir / f"tiles-pass-{i}.fits"
-        with fitsio.FITS(fname) as h:
-            n_tiles.append(len(h[1][:]))
-    return n_tiles
-
-def get_tile_files(mtl_dir):
-    return sorted(mtl_dir.glob("tiles-*.fits"))
-
-def tiles_from_file(fname):
-     with fitsio.FITS(fname) as h:
-            return len(h[1][:])
-
-
-
-nobs_arrs = []
-at_least_arrs = []
-fraction_arrs = []
-ntiles_arrs = []
-mtls = []
-
 top_axis = False
 
-mtl_bases = [Path(m) for m in args.mtls]
+parent_dir = Path(args.indir)
 
 t_start = time.time()
-for mtl_loc in mtl_bases:
-    print(f"Loading {mtl_loc}...")
-    # mtl = load_mtl_all(Path(mtl_loc), args.verbose)
-    mtl_locs = get_all_mtl_locs(mtl_loc)
-    # print(mtl_locs)
-    with Pool(args.nproc) as p:
-         mtl_tbls = p.map(load_mtl, mtl_locs)
-
-    mtl = vstack(mtl_tbls)
-    mtls.append(mtl)
+print(f"Loading everything...")
+nobs_arrs = [np.load(parent_dir / f"nobs_{suffix}.npy") for suffix in args.suffixes]
+at_least_arrs = [np.load(parent_dir / f"at_least_{suffix}.npy") for suffix in args.suffixes]
+fraction_arrs = [np.load(parent_dir / f"fraction_{suffix}.npy") for suffix in args.suffixes]
+ntiles_arrs = [np.load(parent_dir / f"ntiles_{suffix}.npy") for suffix in args.suffixes]
+ntiles_cum_arrs = [np.load(parent_dir / f"ntiles_cum_{suffix}.npy") for suffix in args.suffixes]
 t_end = time.time()
 print(f"Loading took {t_end - t_start} seconds...")
 
 
-
-print(f"Calculating values...")
-with Pool(args.nproc) as p:
-    # Each row is a pass, each column is number of objects with that many exposures
-    print("N_OBS arr....")
-    t_start = time.time()
-    res = p.map(get_nobs_arr, mtls)
-    # nobs, at_least = get_nobs_arr(mtl)
-    nobs_arrs = [v[0] for v in res]
-    at_least_arrs = [v[1] for v in res]
-
-    t_end = time.time()
-    print(f"Nobs took {t_end - t_start} seconds...")
-
-    # [0,0] is the "at least zero exposures with zero iterations" which should include
-    # every single object at this point.
-    fraction_arrs = [v[1] / v[1][0,0] for v in res]
-
-    t_start = time.time()
-    del res
-
-    ntiles_arrs = []
-    if args.pertile:
-        print("Getting n_tiles...")
-        for mtl_loc in mtl_bases:
-            ntiles_arrs.append(p.map(tiles_from_file, get_tile_files(mtl_loc)))
-
-    t_end = time.time()
-    for i in range(len(ntiles_arrs)):
-        ntiles_arrs[i].insert(0, 0)
-        ntiles_arrs[i] = np.cumsum(ntiles_arrs[i])
-    print(f"Get Tiles took {t_end - t_start} seconds...")
-
-
-if args.perpass:
-    # Making the comparison plot between the different runs
-    fig, ax = plt.subplots(figsize=(12, 5))
-
-    for i in range(len(fraction_arrs)):
-        goal = int(args.goals[i])
-        name = Path(args.mtls[i]).name
-        plt.plot(fraction_arrs[i][:, goal], "-o", label=f"{name} (Goal {goal})", c=colors[i])
-
-    plt.legend()
-    ax.grid(alpha=0.5)
-    ax.set(xlim=(0, 30), ylim=(0, 1), xlabel="Num Passes", ylabel="Fraction", title="Fraction of targets with at least $n$ obs")
-    plt.axhline(y=0.9, c="k")
-    plt.axhline(y=0.95, c="r")
-    plt.savefig(out_dir / "efficiency_per_pass.jpg", dpi=256, bbox_inches="tight")
-
 if args.pertile:
     # Comparison plot by number of tiles in each exposure.
+    # Plots the fraction of assigned targets or assigned density per night/MTL update
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    tile_maxes = []
     ylbl = "Fraction"
-    densities = []
+    densities = [] # For scaling the y axis correctly
     for i in range(len(fraction_arrs)):
         goal = int(args.goals[i])
-        name = Path(args.mtls[i]).name
+        name = args.suffixes[i]
 
-        # Use this to determine how far to plot in the xlimits
-        efficiency = 0.95
-        hit_goal = fraction_arrs[i][:, goal] >= efficiency
-        idx_goal = np.argmax(hit_goal)
-        tile_maxes.append(ntiles_arrs[i][idx_goal] * (5 - goal))
-
+        # If we're making the plot in assigned density rather than assigned
+        # fraction space we need to keep track of each curve's unassigned (true)
+        # density, but we can set that density to 1 for the case that we don't do that.
         density = 1
-
         if args.density_assign:
-            density = int(name.split("-")[3])
+            density = int(name.split("-")[1])
             ylbl = "Assigned Targets Per Sq. Deg."
 
         densities.append(density)
-
-        # Scale the 1 goal to be x4 and the 4 goal to be x1 so they're on the same scale.
-        # if i < 2:
-        #     lw = 2
-        #     print(ntiles_arrs[i].shape, fraction_arrs[i].shape, args.labels[i] )
-
+        # Index in the arr should correspond with the goal, given the order
+        # we load thigns in...
+        # NOTE: If we were really worried we could do it as a dict and not a list.
+        y = fraction_arrs[i][:, goal] * density
+        x = ntiles_cum_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal)
         if args.use_marker:
             marker = "-o"
-            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, marker, lw=1, label=args.labels[i], c=colors[i])
+            plt.plot(x, y, marker, lw=1, label=args.labels[i], c=colors[i])
         else:
-            plt.plot(ntiles_arrs[i][:fraction_arrs[i].shape[0]] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=1, label=args.labels[i], c=colors[i])
-        # else:
-        #     lw = 2
-        #     plt.plot(ntiles_arrs[i] * (5 - goal), fraction_arrs[i][:, goal] * density, "-o", lw=lw, label=args.labels[i], c=colors[i], markerfacecolor='white', mew=2)
-    # np.max(tile_maxes) * 1.1
+            plt.plot(x, y, lw=1, label=args.labels[i], c=colors[i])
+
     plt.legend()
     ax.grid(alpha=0.5)
-    tile_max = np.max([arr[-1] for arr in ntiles_arrs])
-    ax.set(xlim=(0, tile_max), ylim=(0, np.max(densities)), xlabel="Num. Exposures", ylabel=ylbl)#, title="Fraction of targets with at least $n$ obs")
+    tile_max = np.max([arr[-1] for arr in ntiles_cum_arrs])
+    ax.set(xlim=(0, tile_max), ylim=(0, np.max(densities)), xlabel="Num. Exposures", ylabel=ylbl)
 
-    if not args.density_assign:
+    if not args.density_assign: # Visual guidelines for the eye.
         plt.axhline(y=0.9 * np.max(densities), c="k")
         plt.axhline(y=0.95 * np.max(densities), c="r")
 
-    if top_axis:
-        z_ax = ax.twiny()
-        z_ax.set(xlim=ax.get_xlim())
-        scale = 14.62439
-        xticks = ax.get_xticks()
-        zticks = np.arange(0, np.max(xticks) * scale, 2000, dtype=int)
-        z_ax.set(xticks=zticks, xticklabels=zticks, xlabel="Exposures Scaled to 5000 sq. deg.")
-
-        plt.axvline(12600, ls="dashed", c="grey")
-
-    plt.savefig(out_dir / "efficiency_per_tile.jpg", dpi=256, bbox_inches="tight")
-
-if args.hist:
-    fig, ax = plt.subplots(figsize=(12, 5))
-
-    hatchings = ["/", "\\", "+"]
-    for i in range(len(nobs_arrs)):
-        goal = int(args.goals[i])
-        efficiency = 0.9
-
-        hit_goal = fraction_arrs[i][:, goal] >= efficiency
-        idx_goal = np.argmax(hit_goal)
-
-        name = Path(args.mtls[i]).name
-
-        x = np.arange(nobs_arrs[1].shape[-1])
-        # plt.plot(x, nobs_arrs[i][idx_goal, :], "-o", label=f"{name} (Goal {goal})", c=colors[i],)
-
-        plt.bar(x, nobs_arrs[i][idx_goal, :], width=1, label=f"{name} (Goal {goal})", ec=colors[i], fill=False, hatch=hatchings[i])
-
-    plt.legend()
-    ax.grid(alpha=0.5)
-    ax.set(xticks=np.arange(0, 40, 4), xlim=(0, 20), xlabel="Num Exposures", ylabel="Num Targets", title="Number of Targets with $n$ Exposures")
-    plt.savefig(out_dir / "nobs_at_goal_hist.jpg", dpi=256, bbox_inches="tight")
-
-if args.targs:
-    for j, mtl in enumerate(mtls):
-
-        timestamps = np.array(mtl["TIMESTAMP"])
-        ts = np.array([datetime.fromisoformat(x.decode()) for x in timestamps])
-        unique_timestamps = np.sort(np.unique(ts))
-
-        name = Path(args.mtls[j]).name
-
-        for i in [4, 7, 16]:
-            this_ts = unique_timestamps[i]
-            keep_rows = ts <= this_ts
-
-            trunc_mtl = deduplicate_mtl(mtl[keep_rows])
-            color = np.where(trunc_mtl["NUMOBS"] > 4, 4, trunc_mtl["NUMOBS"])
-
-            fig, ax = plt.subplots(figsize=(5, 5), layout="constrained")
-
-            ra_min = 205
-            ra_max = 210
-            dec_min = 25
-            dec_max = 30
-
-            in_zone_ra = (trunc_mtl["RA"] >= ra_min) & (trunc_mtl["RA"] <= ra_max)
-            in_zone_dec = (trunc_mtl["DEC"] >= dec_min) & (trunc_mtl["DEC"] <= dec_max)
-            in_zone = in_zone_ra & in_zone_dec
-
-            plt.scatter(trunc_mtl["RA"][in_zone], trunc_mtl["DEC"][in_zone], c=color[in_zone], cmap="bwr", alpha=0.25, s=2)
-            ax.axis("off")
-            plt.savefig(out_dir / f"{name}_targs_{i}.jpg", dpi=256, bbox_inches="tight")
+    save_name = f"efficiency_per_tile_{args.name}.jpg" if args.name is not None else "efficiency_per_tile.jpg"
+    plt.savefig(out_dir / save_name, dpi=256, bbox_inches="tight")
 
 
-# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --density_assign --labels "Movable Collimater (1000 sq. deg.)" "Offset Tiles (1000 sq. deg.)" "Movable Collimater (1200 sq. deg.)" "Offset Tiles (1200 sq. deg.)"
-
-# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nodither-nproc-32/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Movable Collimater" "Offset Tiles"
-
-
-# python summary_plots.py  --mtls /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc32-inputtiles/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --goals 4 4 -o /pscratch/sd/d/dylang/fiberassign/plots/ --pertile --nproc 32 --labels "Per Night" "Original"
-
-# python summary_plots.py  --mtls  /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --goals 4 4 -o . --pertile --nproc 32 --labels  "With STDs" "Test"
+# python summary_plots.py --suffixes lae-1000-big-inputtiles-withstds lae-1000-big-inputtiles-withstds-test --goals 4 4 -o . --pertile --labels "Base" "Test" --name "lae_1000_300sqdeg" -i /pscratch/sd/d/dylang/fiberassign/processed/
