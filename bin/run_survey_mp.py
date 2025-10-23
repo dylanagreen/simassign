@@ -222,12 +222,15 @@ with Pool(args.nproc) as p:
         ts = [datetime.fromisoformat(t) for t in tiles_subset["TIMESTAMP"]]
         last_time = max(ts)
         last_time += timedelta(hours=1)
+        last_time = last_time.isoformat()
 
         t_mid = time.time()
         times["get_last_time"].append(t_mid - t3)
         # TODO parallelize
-        for hpx in hpx_night:
-            mtl_all[hpx] = update_mtl(mtl_all[hpx], assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
+        update_params = [(mtl_all[hpx], assigned_tids, last_time, False) for hpx in hpx_night]
+        updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as hpx_night
+        for i, hpx in enumerate(hpx_night):
+            mtl_all[hpx] = updated_tbls[i]
         t4 = time.time()
         times["update_mtl"].append(t4 - t3)
         print(f"MTL update took {t4 - t3} seconds...")
