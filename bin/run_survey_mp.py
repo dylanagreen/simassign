@@ -7,6 +7,8 @@
 
 # python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-30pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
 
+# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-2pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
+
 # TODO proper docstring
 import argparse
 from datetime import datetime, timedelta
@@ -153,103 +155,100 @@ def load_tids_from_fba(fba_loc):
         tids = tids[(tids > 0) & (device != "ETC")]
     return tids
 
-def save_mtl(hpx):
+# def save_mtl(hpx):
+#     print(f"Saving healpix {hpx}")
+#     mtl_all[hpx].write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
+
+def save_mtl(mtl_to_save, hpx):
     print(f"Saving healpix {hpx}")
-    mtl_all[hpx].write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
+    mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
 
-
-print(f"cols: {mtl_all[list(mtl_all.keys())[0]].colnames}")
+# print(f"cols: {mtl_all[list(mtl_all.keys())[0]].colnames}")
 
 # for i in range(1, args.npass + 1):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
-times = {"gen_curr_mtl": [], "assign": [],  "update_mtl": [], "save_mtl": [],}  # For profiling.
+times = {"gen_curr_mtl": [], "assign": [],  "get_last_time": [], "update_mtl": [], "save_mtl": [],}  # For profiling.
 cur_year = tiles["TIMESTAMP_YMD"][0][:4]
 print(f"Starting year: {cur_year}")
 t2 = time.time()
-for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
-    print(f"Beginning night {i} {timestamp} by loading tiling...")
-    night_year = timestamp[:4]
+with Pool(args.nproc) as p:
+    # mtl_share = manager.dict()
+    # mtl_share.update(mtl_all)
 
-    this_date = tiles["TIMESTAMP_YMD"] == timestamp
-    tiles_subset = unique(tiles[this_date & tiles["IN_DESI"]], "TILEID") # Unique to avoid 2 processes assigning the same tile.
+    for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
+        print(f"Beginning night {i} {timestamp} by loading tiling...")
+        night_year = timestamp[:4]
 
-    hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique from the return of tiles2pix
-    hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
+        # Step 1: generate the subset of tiles that are run on this night
+        # And the associated file of targes observable by that tile.
+        this_date = tiles["TIMESTAMP_YMD"] == timestamp
+        tiles_subset = unique(tiles[this_date & tiles["IN_DESI"]], "TILEID") # Unique to avoid 2 processes assigning the same tile.
 
-    print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
+        hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique from the return of tiles2pix
+        hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
 
-    # TODO run fiberassign in a way that we can skip saving target files.
-    t_start_curr = time.time()
-    curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
-    t_end_curr = time.time()
-    times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
-    print(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
-    targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
+        print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
 
-    # Worthwhile to keep this for summary plot purposes
-    tile_loc = base_dir / f"tiles-{timestamp}.fits"
-    tiles_subset.write(tile_loc, overwrite=True)
+        # Deduplicate the MTL to get only the most recent information for each target.
+        # TODO run fiberassign in a way that we can skip saving target files.
+        t_start_curr = time.time()
+        curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
+        t_end_curr = time.time()
+        times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
+        print(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
+        targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
-    t_start_assign = time.time()
-    fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"], tiles_subset["TILEID"])
-    with Pool(args.nproc) as p:
-         assigned_tids = p.starmap(fiberassign_tile, fiberassign_params)
+        # Worthwhile to keep this for summary plot purposes
+        tile_loc = base_dir / f"tiles-{timestamp}.fits"
+        tiles_subset.write(tile_loc, overwrite=True)
 
-    # assigned_tids = []
+        # Step 2: actually run the fiber assignment, and get back the assigned targetids
+        t_start_assign = time.time()
 
-    # TODO we can parallelize this because the order of assigned tids is irrelevant
+        fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"], tiles_subset["TILEID"])
+        assigned_tids = p.starmap(fiberassign_tile, fiberassign_params)
+        assigned_tids = np.concatenate(assigned_tids)
 
-    # for tileid in tiles_subset["TILEID"]:
-    #     tileid = str(tileid)
-        # fba_file = base_dir / "fba" / f"fba-{tileid.zfill(6)}.fits"
-        # print(f"Loading tids from {fba_file.name}")
-        # with fitsio.FITS(fba_file) as h:
-        #         tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
-        #         device = h["FASSIGN"]["DEVICE_TYPE"][:]
-        #         # Cutting on "not ETC" probably not necessary but just to be safe.
-        #         tids = tids[(tids > 0) & (device != "ETC")]
-        #         assigned_tids.append(tids)
+        t_end_assign = time.time()
+        times["assign"].append(t_end_assign - t_start_assign)
+        print(f"Assignment took {t_end_assign - t_start_assign} seconds...")
 
-        #         print(f"Loaded {len(tids)} from {fba_file}")
+        unique_tids, counts = np.unique(assigned_tids, return_counts=True)
+        print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
 
-    assigned_tids = np.concatenate(assigned_tids)
-    t_end_assign = time.time()
-    times["assign"].append(t_end_assign - t_start_assign)
-    print(f"Assignment took {t_end_assign - t_start_assign} seconds...")
+        # Step 3 update the MTL
+        # Determining the timestamp to imprint on the MTL update
+        t3 = time.time()
+        ts = [datetime.fromisoformat(t) for t in tiles_subset["TIMESTAMP"]]
+        last_time = max(ts)
+        last_time += timedelta(hours=1)
 
-    unique_tids, counts = np.unique(assigned_tids, return_counts=True)
-    print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
+        t_mid = time.time()
+        times["get_last_time"].append(t_mid - t3)
+        # TODO parallelize
+        for hpx in hpx_night:
+            mtl_all[hpx] = update_mtl(mtl_all[hpx], assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
+        t4 = time.time()
+        times["update_mtl"].append(t4 - t3)
+        print(f"MTL update took {t4 - t3} seconds...")
 
-    ts = [datetime.fromisoformat(t) for t in tiles_subset["TIMESTAMP"]]
-    last_time = max(ts)
-    last_time += timedelta(hours=1)
+        # Step 4 save the updated MTLs
+        # Write updated MTLs by healpix.
+        # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
+        if not args.danger:
+            save_params = [(mtl_all[hpx], hpx) for hpx in hpx_night]
+            p.starmap(save_mtl, save_params)
+        # In danger mode only save if the year crosses over or it's the last night.
+        elif (args.danger and (night_year > cur_year) or (i == (n_nights - 1))):
+            print(f"Saving on night {i} {timestamp}")
+            save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
+            p.starmap(save_mtl, save_params)
 
-    t3 = time.time()
-    # TODO parallelize
-    for hpx in hpx_night:
-        mtl_all[hpx] = update_mtl(mtl_all[hpx], assigned_tids, timestamp=last_time.isoformat(), use_desitarget=False)
-    t4 = time.time()
-    times["update_mtl"].append(t4 - t3)
-    print(f"MTL update took {t4 - t3} seconds...")
+        t5 = time.time()
+        times["save_mtl"].append(t5 - t4)
+        print(f"Saving MTL took {t5 - t4} seconds...")
 
-    # Write updated MTLs by healpix.
-    # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
-    # mtls_to_save = [mtl_all[hpx] for hpx in hpx_night]
-    # save_params = zip(mtls_qto_save, hpx_night)
-    if not args.danger:
-        with Pool(args.nproc) as p:
-            p.map(save_mtl, hpx_night)
-    # In danger mode only save if the year crosses over or it's the last night.
-    elif (args.danger and (night_year > cur_year)) or (i == (n_nights - 1)):
-        print(f"Saving on night {i} {timestamp}")
-        with Pool(args.nproc) as p:
-            p.map(save_mtl, pixlist)
-
-    t5 = time.time()
-    times["save_mtl"].append(t5 - t4)
-    print(f"Saving MTL took {t5 - t4} seconds...")
-
-    cur_year = night_year
+        cur_year = night_year
 
 print("Done!")
 t_end = time.time()
