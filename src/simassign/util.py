@@ -419,8 +419,8 @@ def get_nobs_arr(mtl):
         how many targets have 3 *or more* exposures after 6 passes.
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
-    ts = np.array([datetime.fromisoformat(x) for x in timestamps])
-    unique_timestamps = np.unique(ts)
+    # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
+    unique_timestamps = np.unique(timestamps)
 
     # Timestamps correspond with when the MTL was created/updated
     # So we can loop over the timestamps to get information from each
@@ -428,7 +428,7 @@ def get_nobs_arr(mtl):
     nobs = len(unique_timestamps)
     nobs_arr = np.zeros((nobs, nobs))
     for i, time in enumerate(unique_timestamps):
-        keep_rows = ts <= time
+        keep_rows = timestamps <= time
         # print(sum(keep_rows))
 
         trunc_mtl = deduplicate_mtl(mtl[keep_rows])
@@ -440,3 +440,24 @@ def get_nobs_arr(mtl):
     at_least_n = np.cumsum(nobs_arr[:, ::-1], axis=1)[:, ::-1]
 
     return nobs_arr, at_least_n
+
+def get_goal_history(mtl, goal):
+    # TODO docstring
+    mtl["METGOAL"] = mtl["NUMOBS"] >= goal
+    timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
+    ts = np.array([datetime.fromisoformat(x) for x in timestamps])
+    unique_timestamps = np.unique(ts)
+
+    # Timestamps correspond with when the MTL was created/updated
+    # So we can loop over the timestamps to get information from each
+    # fiberassign run.
+    nobs = len(unique_timestamps)
+    goal_hist = np.zeros(nobs)
+    for i, time in enumerate(unique_timestamps):
+        keep_rows = ts <= time # TODO can I do this without making them date times? Will the strings compare in the  right way if they're strings?
+        # print(sum(keep_rows))
+
+        trunc_mtl = deduplicate_mtl(mtl[keep_rows])
+        goal_hist[i] = np.sum(trunc_mtl["METGOAL"])
+
+    return goal_hist, goal_hist / len(np.unique(mtl["TARGETID"]))
