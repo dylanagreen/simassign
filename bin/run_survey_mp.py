@@ -20,11 +20,8 @@ import healpy as hp
 import fitsio
 
 # DESI imports
-from desimodel.io import load_tiles
 from desimodel.focalplane import get_tile_radius_deg
 from desimodel.footprint import tiles2pix
-from desitarget.mtl import make_mtl, make_ledger_in_hp
-from desitarget.targetmask import desi_mask, obsconditions
 from fiberassign.scripts.assign import parse_assign, run_assign_full, run_assign_bytile
 
 # stdlib imports
@@ -60,6 +57,8 @@ args = parser.parse_args()
 t_start = time.time()
 targetmask = load_target_yaml("targetmask.yaml")
 print(f"Using {targetmask}")
+print(f"Running with...")
+print(args)
 
 # Generate the random targets
 rng = np.random.default_rng(91701)
@@ -173,6 +172,7 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
     t_end_curr = time.time()
     times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
+    print(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
     targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
     # Worthwhile to keep this for summary plot purposes
@@ -204,6 +204,7 @@ for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
     assigned_tids = np.concatenate(assigned_tids)
     t_end_assign = time.time()
     times["assign"].append(t_end_assign - t_start_assign)
+    print(f"Assignment took {t_end_assign - t_start_assign} seconds...")
 
     unique_tids, counts = np.unique(assigned_tids, return_counts=True)
     print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
