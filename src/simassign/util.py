@@ -1,5 +1,6 @@
 # stdlib imports
 from datetime import datetime
+from multiprocessing import Pool
 from pathlib import Path
 
 # DESI imports
@@ -393,10 +394,12 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     return targ_files, tile_files
 
-def get_nobs_arr(mtl):
+def get_nobs_arr(mtl, global_timestamps=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
-    after $n$ passes, up to the total number $N$ passes.
+    after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
+    correspond with the end of a pass or an observing night, depending on strategy
+    used.
 
     Parameters
     ----------
@@ -404,23 +407,33 @@ def get_nobs_arr(mtl):
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
 
+    global_timestamps : :class:`~numpy.array`
+        An array of global timestamps to use for generating the number of observations.
+        I.e. return the number of observations at each timestamp in global_timestamps
+        rather than at each timestamp in the input mtl. Optional, defaults to None,
+        which uses the timestamps in the input mtl.
+
     Returns
     -------
     :class:`~numpy.array`
         Array storing the number of targets with the number of observations
-        given by the 1st axis, at the pass number given by the position
+        given by the 1st axis, at the update number given by the position
         in the 0th axis. For example, the position obs_arr[6, 3] indicates
-        how many targets have *exactly* 3 exposures after 6 passes.
+        how many targets have *exactly* 3 exposures after 6 MTL updates.
 
     :class:`~numpy.array`
         Array storing the number of targets with *at least* the number of
         observations given by the 1st axis. For example, the position
         at_least_arr[6, 3] indicates
-        how many targets have 3 *or more* exposures after 6 passes.
+        how many targets have 3 *or more* exposures after 6 MTL updates.
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
+
+    if global_timestamps is not None:
+        unique_timestamps = np.unique(global_timestamps)
+    else:
+        unique_timestamps = np.unique(timestamps)
     # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
-    unique_timestamps = np.unique(timestamps)
 
     # Timestamps correspond with when the MTL was created/updated
     # So we can loop over the timestamps to get information from each

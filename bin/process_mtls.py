@@ -33,16 +33,16 @@ args = parser.parse_args()
 out_dir = Path(args.outdir)
 
 # TODO these functions should be moved to the main package.
-def get_all_mtl_locs(top_dir):
-    hp_base = top_dir / "hp" / "main" / "dark"
-    fnames = list(hp_base.glob("*.fits"))
-    if len(fnames) == 0:
-        fnames = list(hp_base.glob("*.ecsv"))
-    return fnames
+# def get_all_mtl_locs(top_dir):
+#     hp_base = top_dir / "hp" / "main" / "dark"
+#     fnames = list(hp_base.glob("*.fits"))
+#     if len(fnames) == 0:
+#         fnames = list(hp_base.glob("*.ecsv"))
+#     return fnames
 
-def load_mtl(mtl_loc):
-    temp_tbl = Table.read(mtl_loc)
-    return temp_tbl
+# def load_mtl(mtl_loc):
+#     temp_tbl = Table.read(mtl_loc)
+#     return temp_tbl
 
 def get_num_tiles(top_dir):
     n_tiles = [0]
@@ -58,25 +58,46 @@ def tiles_from_file(fname):
      with fitsio.FITS(fname) as h:
             return len(h[1][:])
 
-mtls = []
-mtl_loc = Path(args.mtls)
+top_dir = Path(args.mtls)
+mtl_loc =  top_dir / "hp" / "main" / "dark"
 
 # Load all the mtls for each of the input mtl bases
 t_start = time.time()
 print(f"Loading {mtl_loc}...")
-mtl_locs = get_all_mtl_locs(mtl_loc)
-with Pool(args.nproc) as p:
-        mtl_tbls = p.map(load_mtl, mtl_locs)
+mtl_all = load_mtl_all(mtl_loc, as_dict=True, nproc=args.nproc)
 
-mtl = vstack(mtl_tbls)
+# mtl = vstack(mtl_tbls)
 t_end = time.time()
 print(f"Loading took {t_end - t_start} seconds...")
+
+timestamps = [np.array(mtl["TIMESTAMP"], dtype=str) for mtl in mtl_all.values()]
+timestamps = np.concatenate(timestamps)
+timestamps = np.unique(timestamps)
+nobs = len(timestamps)
 
 print(f"Calculating values...")
 # Each row is a pass, each column is number of objects with that many exposures
 print("Generating num obs per update arr....")
 t_start = time.time()
-nobs, at_least = get_nobs_arr(mtl)
+
+print(len(list(mtl_all.values())))
+
+def get_nobs_mp(mtl):
+     return get_nobs_arr(mtl, timestamps)
+
+# with Pool(args.nproc) as p:
+#      res = p.map(get_nobs_mp, list(mtl_all.values()))
+
+res = []
+for k, v in mtl_all.items():
+     res.append(get_nobs_mp(v))
+
+nobs = np.zeros(res[0][0].shape)
+at_least = np.zeros(res[0][1].shape)
+
+for i, r in enumerate(res):
+     nobs += res[0]
+     at_least += res[1]
 
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
@@ -90,7 +111,7 @@ t_start = time.time()
 
 print("Getting n_tiles...")
 with Pool(args.nproc) as p:
-    ntiles = p.map(tiles_from_file, get_tile_files(mtl_loc))
+    ntiles = p.map(tiles_from_file, get_tile_files(top_dir))
 ntiles.insert(0, 0)
 ntiles_cum = np.cumsum(ntiles)
 
