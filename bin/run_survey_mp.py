@@ -12,7 +12,7 @@
 # TODO proper docstring
 import argparse
 from datetime import datetime, timedelta
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool
 import time
 
 # Non-DESI Imports
@@ -24,7 +24,7 @@ import fitsio
 # DESI imports
 from desimodel.focalplane import get_tile_radius_deg
 from desimodel.footprint import tiles2pix
-from fiberassign.scripts.assign import parse_assign, run_assign_full, run_assign_bytile
+from fiberassign.scripts.assign import parse_assign, run_assign_full
 
 # stdlib imports
 from pathlib import Path
@@ -37,6 +37,25 @@ from simassign.util import *
 from simassign.io import load_catalog
 
 
+import logging
+LEVEL = 15 # More thand bug less than info
+logging.addLevelName(LEVEL, "DETAILS")
+
+def details(self, message, *args, **kws):
+    if self.isEnabledFor(LEVEL):
+        self._log(LEVEL, message, args, **kws)
+logging.Logger.details = details
+log = logging.getLogger(__name__)
+log.setLevel(LEVEL-1)
+
+# I need to log things instead of print because of the way multiprocessing
+# works all the text printed will be hijacked until the end of the script
+# but it's actually of debug benefit to have it in the right place.
+handler = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
+handler.setFormatter(formatter)
+log.addHandler(handler)
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
 parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
@@ -45,8 +64,6 @@ parser.add_argument("--decmin", required=False, type=float, help="minimum DEC an
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
-# parser.add_argument("--npass", required=False, type=int, default=100,
-#                     help="number of assignment passes to do. Script will run as many passes as possible up to npass or max(tiles[\"PASS\"]), whichever is lower.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 
@@ -60,15 +77,15 @@ args = parser.parse_args()
 
 t_start = time.time()
 targetmask = load_target_yaml("targetmask.yaml")
-print(f"Using {targetmask}")
-print(f"Running with...")
-print(args)
+log.details(f"Using {targetmask}")
+log.details(f"Running with...")
+log.details(args)
 
 if args.danger:
-    print("=" * 9)
-    print("Running in danger mode. This means:")
-    print("1. Will not save MTLs every night, only every year of the survey which has implications for checkpointing.")
-    print("=" * 9)
+    log.details("=" * 9)
+    log.details("Running in danger mode. This means:")
+    log.details("1. Will not save MTLs every night, only every year of the survey which has implications for checkpointing.")
+    log.details("=" * 9)
 
 
 # Generate the random targets
@@ -80,7 +97,7 @@ elif (args.ramin is not None) and (args.ramax is not None) and (args.decmin is n
 else:
     ra, dec = load_catalog(args.catalog)
 
-print(f"Generated {len(ra)} targets...")
+log.details(f"Generated {len(ra)} targets...")
 
 tbl = Table()
 tbl["RA"] = ra
@@ -90,7 +107,7 @@ nside = 64
 theta, phi = np.radians(90 - dec), np.radians(ra)
 pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
-print(f"{len(pixlist)} HEALpix covered by catalog.")
+log.details(f"{len(pixlist)} HEALpix covered by catalog.")
 
 if args.stds is not None:
     stds_catalog = Table.read(args.stds)
@@ -142,41 +159,22 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid):
             device = h["FASSIGN"]["DEVICE_TYPE"][:]
             # Cutting on "not ETC" probably not necessary but just to be safe.
             tids = tids[(tids > 0) & (device != "ETC")]
-            print(f"Loaded {len(tids)} from {fba_file}")
-
+            log.details(f"Loaded {len(tids)} from {fba_file}")
     return tids
-
-def load_tids_from_fba(fba_loc):
-    with fitsio.FITS(fba_loc) as h:
-
-        tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
-        device = h["FASSIGN"]["DEVICE_TYPE"][:]
-        # Cutting on "not ETC" probably not necessary but just to be safe.
-        tids = tids[(tids > 0) & (device != "ETC")]
-    return tids
-
-# def save_mtl(hpx):
-#     print(f"Saving healpix {hpx}")
-#     mtl_all[hpx].write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
 
 def save_mtl(mtl_to_save, hpx):
-    print(f"Saving healpix {hpx}")
+    log.details(f"Saving healpix {hpx}")
     mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
 
-# print(f"cols: {mtl_all[list(mtl_all.keys())[0]].colnames}")
-
-# for i in range(1, args.npass + 1):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 times = {"gen_curr_mtl": [], "assign": [],  "get_last_time": [], "update_mtl": [], "save_mtl": [],}  # For profiling.
 cur_year = tiles["TIMESTAMP_YMD"][0][:4]
-print(f"Starting year: {cur_year}")
+log.details(f"Starting year: {cur_year}")
 t2 = time.time()
 with Pool(args.nproc) as p:
-    # mtl_share = manager.dict()
-    # mtl_share.update(mtl_all)
 
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
-        print(f"Beginning night {i} {timestamp} by loading tiling...")
+        log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]
 
         # Step 1: generate the subset of tiles that are run on this night
@@ -187,7 +185,7 @@ with Pool(args.nproc) as p:
         hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique from the return of tiles2pix
         hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
 
-        print(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
+        log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
 
         # Deduplicate the MTL to get only the most recent information for each target.
         # TODO run fiberassign in a way that we can skip saving target files.
@@ -195,7 +193,7 @@ with Pool(args.nproc) as p:
         curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
         t_end_curr = time.time()
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
-        print(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
+        log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
         targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
         # Worthwhile to keep this for summary plot purposes
@@ -211,10 +209,10 @@ with Pool(args.nproc) as p:
 
         t_end_assign = time.time()
         times["assign"].append(t_end_assign - t_start_assign)
-        print(f"Assignment took {t_end_assign - t_start_assign} seconds...")
+        log.details(f"Assignment took {t_end_assign - t_start_assign} seconds...")
 
         unique_tids, counts = np.unique(assigned_tids, return_counts=True)
-        print(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
+        log.details(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
 
         # Step 3 update the MTL
         # Determining the timestamp to imprint on the MTL update
@@ -233,7 +231,7 @@ with Pool(args.nproc) as p:
             mtl_all[hpx] = updated_tbls[i]
         t4 = time.time()
         times["update_mtl"].append(t4 - t3)
-        print(f"MTL update took {t4 - t3} seconds...")
+        log.details(f"MTL update took {t4 - t3} seconds...")
 
         # Step 4 save the updated MTLs
         # Write updated MTLs by healpix.
@@ -243,21 +241,21 @@ with Pool(args.nproc) as p:
             p.starmap(save_mtl, save_params)
         # In danger mode only save if the year crosses over or it's the last night.
         elif (args.danger and (night_year > cur_year) or (i == (n_nights - 1))):
-            print(f"Saving on night {i} {timestamp}")
+            log.details(f"Saving on night {i} {timestamp}")
             save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
             p.starmap(save_mtl, save_params)
 
         t5 = time.time()
         times["save_mtl"].append(t5 - t4)
-        print(f"Saving MTL took {t5 - t4} seconds...")
+        log.details(f"Saving MTL took {t5 - t4} seconds...")
 
         cur_year = night_year
 
-print("Done!")
+log.details("Done!")
 t_end = time.time()
-print(f"Init: \t\t\t{t2 - t_start} \t {(t2 - t_start) / 60}")
-print(f"Full: \t\t\t{t_end - t_start} \t {(t_end - t_start) / 60}")
-print(f"Average per night: \t{(t_end - t2) / n_nights}\t {(t_end - t2) / (n_nights * 60)}")
+log.details(f"Init: \t\t\t{t2 - t_start} \t {(t2 - t_start) / 60}")
+log.details(f"Full: \t\t\t{t_end - t_start} \t {(t_end - t_start) / 60}")
+log.details(f"Average per night: \t{(t_end - t2) / n_nights}\t {(t_end - t2) / (n_nights * 60)}")
 
 for k in times.keys():
-    print(f"Average {k}: {np.mean(times[k])}")
+    log.details(f"Average {k}: {np.mean(times[k])}")
