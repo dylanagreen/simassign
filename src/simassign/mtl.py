@@ -12,6 +12,7 @@ from desitarget.targets import encode_targetid, decode_targetid
 
 # stdlib imports
 from importlib import resources
+from multiprocessing import Pool
 from pathlib import Path
 import shutil
 import yaml
@@ -85,7 +86,6 @@ def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbos
         # Make sure we only update on the latest version of the MTL.
         update_rows = np.isin(mtl["TARGETID"], tids_to_update)
         mtl_updates = deduplicate_mtl(mtl[update_rows])
-        # mtl_updates = unique_mtl[update_rows]
 
         # Iterate the number of observations
         mtl_updates["NUMOBS"] += 1
@@ -110,7 +110,7 @@ def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbos
                 print(f"Update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
 
             # lazily assume that the target class is correct and we want more zgood.
-            # Do this before is_complete so that is_Complete overrides in the
+            # Do this before is_complete so that is_complete overrides in the
             # case of 1 requested exposure.
             mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
             mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U15") # So we don't truncate status.
@@ -338,3 +338,37 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     if return_mtl_all:
         return mtl_all
     return
+
+
+def load_mtl(mtl_loc):
+    print(f"Loading {mtl_loc.name}")
+    return Table.read(mtl_loc)
+
+def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
+     # TODO docstring
+
+    if as_dict:
+        mtl_all = {}
+    else:
+        mtl_all = Table()
+
+    locs = list(mtl_dir.glob("*.ecsv"))
+
+    # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
+    pixlist = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
+
+    with Pool(nproc) as p:
+        tbls = p.map(load_mtl, locs)
+
+    if as_dict:
+        for i, temp_tbl in enumerate(tbls):
+            hpx = pixlist[i]
+            mtl_all[int(hpx)] = temp_tbl
+    else:
+        mtl_all = vstack(tbls)
+
+    # Want the global MTL sorted on TARGETID too.
+    if not as_dict:
+        mtl_all.sort("TARGETID")
+
+    return mtl_all

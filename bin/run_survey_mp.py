@@ -109,18 +109,32 @@ pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
 
 log.details(f"{len(pixlist)} HEALpix covered by catalog.")
 
-if args.stds is not None:
-    stds_catalog = Table.read(args.stds)
-    mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True)
-else:
-    mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True)
-
 # Directories for later
 base_dir = Path(args.outdir)
 hp_base = base_dir / "hp" / "main" / "dark"
+fba_base = base_dir / "fba"
 
 tile_loc = Path(args.tiles)
 tiles = Table.read(tile_loc)
+
+loaded_from_checkpoint = False
+if hp_base.is_dir() and fba_base.is_dir():
+    # Attempt to checkpoint
+    mtl_all = load_mtl_all(hp_base, as_dict=True, nproc=args.nproc)
+    last_timestamp = np.sort([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all.values()])[-1]
+    last_timestamp = last_timestamp[:10] # Only need the date, not the time
+    last_timestamp = last_timestamp.replace("-", "")
+
+    loaded_from_checkpoint = True
+    log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
+else:
+    if args.stds is not None:
+        stds_catalog = Table.read(args.stds)
+        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True)
+    else:
+        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True)
+
+
 
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
@@ -131,6 +145,8 @@ fba_loc = str(base_dir / "fba")
 def fiberassign_tile(targ_loc, tile_loc, runtime, tileid):
     params = ["--rundate",
               runtime,
+              "--obsdate",
+              runtime[:10], # Only need the date, not the time
               "--overwrite",
               "--write_all_targets",
               "--footprint", # Actually means "footprint" of tile centers...
@@ -169,11 +185,19 @@ def save_mtl(mtl_to_save, hpx):
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 times = {"gen_curr_mtl": [], "assign": [],  "get_last_time": [], "update_mtl": [], "save_mtl": [],}  # For profiling.
 cur_year = tiles["TIMESTAMP_YMD"][0][:4]
+
+# So we save at the correct points again later.
+if loaded_from_checkpoint:
+    cur_year = last_timestamp[:4]
+
 log.details(f"Starting year: {cur_year}")
 t2 = time.time()
 with Pool(args.nproc) as p:
-
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
+        if loaded_from_checkpoint and timestamp <= last_timestamp:
+            print(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
+            continue
+
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]
 
