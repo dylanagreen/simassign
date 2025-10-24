@@ -222,9 +222,14 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         except waste memory and time, since the MTL will not be saved
         nor returned. Defaults to True.
 
+    as_dict : bool
+        Whether to return the mtl_all as a dict, with healpixel number as the key
+        and the value as the individual MTL corresponding tot hat healpixel,
+        or to stack the entire table into one. Defaults to False (stacking as a single table).
+
     Returns
     -------
-    :class:`~numpy.array` or :class:`~astropy.table.Table`
+    :class:`~numpy.array` or :class:`~astropy.table.Table` or dict
        MTL corresponding to the targets given in the `base_tbl`. Even when saving
        the MTL split across healpix (when `save_dir` is passed) this function
        still returns the full global MTL.
@@ -338,37 +343,3 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     if return_mtl_all:
         return mtl_all
     return
-
-
-def load_mtl(mtl_loc):
-    print(f"Loading {mtl_loc.name}")
-    return Table.read(mtl_loc)
-
-def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
-     # TODO docstring
-
-    if as_dict:
-        mtl_all = {}
-    else:
-        mtl_all = Table()
-
-    locs = list(mtl_dir.glob("*.ecsv"))
-
-    # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
-    pixlist = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
-
-    with Pool(nproc) as p:
-        tbls = p.map(load_mtl, locs)
-
-    if as_dict:
-        for i, temp_tbl in enumerate(tbls):
-            hpx = pixlist[i]
-            mtl_all[int(hpx)] = temp_tbl
-    else:
-        mtl_all = vstack(tbls)
-
-    # Want the global MTL sorted on TARGETID too.
-    if not as_dict:
-        mtl_all.sort("TARGETID")
-
-    return mtl_all

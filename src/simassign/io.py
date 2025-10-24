@@ -2,6 +2,9 @@
 from astropy.table import Table, vstack
 import numpy as np
 
+# Stdlib imports
+from multiprocessing import Pool
+
 def load_catalog(file_loc, box=None):
     """
     Load a catalog of targets located at file_loc, and return their right
@@ -46,36 +49,67 @@ def load_catalog(file_loc, box=None):
 
     return np.array(tbl["RA"]), np.array(tbl["DEC"])
 
-def load_mtl_all(top_dir, verbose=False):
-    """
-    Load all MTLs split by healpix stored in top_dir.
+def load_mtl(mtl_loc):
+    print(f"Loading {mtl_loc.name}")
+    return Table.read(mtl_loc)
 
-    This function iterates over the healpix subdirectories stored in top_dir
+def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
+    """
+    Load all MTLs split by healpix stored in mtl_dir.
+
+    This function iterates over the healpix subdirectories stored in mtl_dir
     and loads all MTL files stored there.
 
     NOTE: Assumes some defaults, namely that
     the MTLs are stored in top_dir / hp / main / dark and that all MTLs
-    are stored as fits files.
+    are stored as ecsv files.
 
     Parameters
     ----------
-    top_dir : :class:`~pathlib.Path`
+    mtl_dir : :class:`~pathlib.Path`
         Top level directory containing MTLs split by healpix.
 
-    verbose : bool
-        Verbosely print when loading each individual MTL file.
+    as_dict : bool
+        Whether to return the mtl_all as a dict, with healpixel number as the key
+        and the value as the individual MTL corresponding tot hat healpixel,
+        or to stack the entire table into one. Defaults to False (stacking as a single table)
+
+    nproc : int
+        Number of processes to use to parallelize the loading. Defaults to 1
 
     Returns
     -------
-    :class:`~astropy.table.Table`
+    :class:`~astropy.table.Table` or dict
         MTL table comprised of all the subtables stored in top_dir.
     """
-    hp_base = top_dir / "hp" / "main" / "dark"
-    mtl_all = Table()
-    tbls = []
-    for mtl_loc in hp_base.glob("*.fits"):
-        if verbose: print(f"Loading {mtl_loc.name}")
-        temp_tbl = Table.read(mtl_loc)
-        tbls.append(temp_tbl)
-    mtl_all = vstack(tbls)
+
+    if as_dict:
+        mtl_all = {}
+    else:
+        mtl_all = Table()
+
+    locs = list(mtl_dir.glob("*.ecsv"))
+    if len(locs) == 0:
+        locs = list(mtl_dir.glob("*.fits"))
+
+    assert len(locs) > 0, "No mtls found as either ecsv or fits!"
+
+
+    # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
+    pixlist = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
+
+    with Pool(nproc) as p:
+        tbls = p.map(load_mtl, locs)
+
+    if as_dict:
+        for i, temp_tbl in enumerate(tbls):
+            hpx = pixlist[i]
+            mtl_all[int(hpx)] = temp_tbl
+    else:
+        mtl_all = vstack(tbls)
+
+    # Want the global MTL sorted on TARGETID too.
+    if not as_dict:
+        mtl_all.sort("TARGETID")
+
     return mtl_all
