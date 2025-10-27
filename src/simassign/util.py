@@ -438,13 +438,15 @@ def get_nobs_arr(mtl, global_timestamps=None):
     # Timestamps correspond with when the MTL was created/updated
     # So we can loop over the timestamps to get information from each
     # fiberassign run.
+    is_std = mtl["TARGET_STATE"] == "CALIB"
+
     nobs = len(unique_timestamps)
     nobs_arr = np.zeros((nobs, nobs))
     for i, time in enumerate(unique_timestamps):
         keep_rows = timestamps <= time
         # print(sum(keep_rows))
 
-        trunc_mtl = deduplicate_mtl(mtl[keep_rows])
+        trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
         c = np.bincount(trunc_mtl["NUMOBS"], minlength=nobs)
         nobs_arr[i, :] = c
     # Reverse to go max down to zero, then sum to get how many have at least that number exposures
