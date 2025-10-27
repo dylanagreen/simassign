@@ -13,7 +13,6 @@ from pathlib import Path
 import time
 
 # Non DESI imports
-from astropy.table import Table, vstack
 import fitsio
 import numpy as np
 
@@ -26,23 +25,11 @@ from simassign.util import get_nobs_arr
 parser = argparse.ArgumentParser()
 parser.add_argument("--mtls", required=True, type=str, help="base directory of mtls to process")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
-parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated plots.")
+parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated files.")
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
-
-# TODO these functions should be moved to the main package.
-# def get_all_mtl_locs(top_dir):
-#     hp_base = top_dir / "hp" / "main" / "dark"
-#     fnames = list(hp_base.glob("*.fits"))
-#     if len(fnames) == 0:
-#         fnames = list(hp_base.glob("*.ecsv"))
-#     return fnames
-
-# def load_mtl(mtl_loc):
-#     temp_tbl = Table.read(mtl_loc)
-#     return temp_tbl
 
 def get_num_tiles(top_dir):
     n_tiles = [0]
@@ -85,19 +72,19 @@ print(len(list(mtl_all.values())))
 def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
 
-# with Pool(args.nproc) as p:
-#      res = p.map(get_nobs_mp, list(mtl_all.values()))
+with Pool(args.nproc) as p:
+     res = p.map(get_nobs_mp, list(mtl_all.values()))
 
-res = []
-for k, v in mtl_all.items():
-     res.append(get_nobs_mp(v))
+# res = []
+# for k, v in mtl_all.items():
+#      res.append(get_nobs_mp(v))
 
 nobs = np.zeros(res[0][0].shape)
 at_least = np.zeros(res[0][1].shape)
 
 for i, r in enumerate(res):
-     nobs += res[0]
-     at_least += res[1]
+     nobs += r[0]
+     at_least += r[1]
 
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
