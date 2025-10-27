@@ -56,6 +56,12 @@ for i in range(1, args.npass + 1):
          passnum = i
     tiles = rotate_tiling(base_tiles, passnum)
 
+    # IF we're not collapsing but we are doing 4x, give each "pass" a unique
+    # tileid, so that we keep all four passes on joins.
+    if args.fourex and not args.collapse:
+        tileids = np.arange(len(tiles)) + i * 10000
+        tiles["TILEID"] = tileids
+
     # Booleans for determining which tiles to keep.
     # Margin makes sure we don't end up with tiles that are "in bounds"
     # but because of the circular shape are off the corner of the
@@ -130,7 +136,10 @@ print(tiles)
 base_dir = Path(args.outdir)
 fname = f"tiles-{args.npass}pass-superset.ecsv"
 if args.fourex:
-    fname = f"tiles-{args.npass // 4}pass-movable_collimator-superset.ecsv"
+    if args.collapse:
+        fname = f"tiles-{args.npass // 4}pass-movable_collimator-superset.ecsv"
+    else:
+        fname = f"tiles-{args.npass // 4}pass-movable_collimator-fastmtl-superset.ecsv"
 
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
 
