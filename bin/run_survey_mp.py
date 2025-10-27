@@ -267,12 +267,11 @@ with Pool(args.nproc) as p:
 
         # Step 4 save the updated MTLs
         # Write updated MTLs by healpix.
-        # TODO If we keep per loop saved MTLS, use them to add checkpointing to the script.
         if not args.danger:
             save_params = [(mtl_all[hpx], hpx) for hpx in hpx_night]
             p.starmap(save_mtl, save_params)
         # In danger mode only save if the year crosses over or it's the last night.
-        elif (args.danger and (night_year > cur_year) or (i == (n_nights - 1))):
+        elif (args.danger and (night_year > cur_year)):
             log.details(f"Saving on night {i} {timestamp}")
             save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
             p.starmap(save_mtl, save_params)
@@ -282,6 +281,14 @@ with Pool(args.nproc) as p:
         log.details(f"Saving MTL took {t5 - t4} seconds...")
 
         cur_year = night_year
+
+    t4 = time.time()
+    log.details(f"Saving at conclusion...")
+    save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
+    p.starmap(save_mtl, save_params)
+    t5 = time.time()
+    times["save_mtl"].append(t5 - t4)
+    log.details(f"Saving MTL took {t5 - t4} seconds...")
 
 log.details("Done!")
 t_end = time.time()
