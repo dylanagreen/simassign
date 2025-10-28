@@ -181,7 +181,7 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
                 tids = tids[(tids > 0) & (device != "ETC")]
                 log.details(f"Loaded {len(tids)} from {fba_file}")
         return tids
-    return []
+    return np.asarray([], dtype=int) # Force dtype = int to ensure stacking remains ints.
 
 def save_mtl(mtl_to_save, hpx):
     log.details(f"Saving healpix {hpx}")
