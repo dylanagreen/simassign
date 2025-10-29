@@ -126,6 +126,19 @@ tiles["DONEFRAC"] = 0.0
 tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
 
+tiles_bright = Table(tiles[1])
+tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
+tiles_bright["PROGRAM"] = "BRIGHT"
+tiles_bright["IN_DESI"] = True
+
+tiles_backup = Table(tiles[-1])
+tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
+tiles_backup["PROGRAM"] = "BACKUP"
+tiles_backup["IN_DESI"] = True
+
+tiles = vstack([tiles, tiles_backup, tiles_bright])
+
+
 print(tiles[tiles["IN_DESI"]])
 print(tiles)
 
