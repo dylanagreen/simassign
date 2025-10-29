@@ -143,6 +143,8 @@ if args.fourex:
 
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
 
+print(f"Saving to... {base_dir / fname}")
+
 tiles.write(base_dir / fname, format="ascii.ecsv", overwrite=True)
 
 # %ECSV 1.0
