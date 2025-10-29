@@ -16,9 +16,7 @@ from desimodel.focalplane import get_tile_radius_deg
 # stdlib imports
 from pathlib import Path
 
-# TODO remove this at some point to point to a generic simassign import.
-import sys
-sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
+# simassign imports
 from simassign.util import rotate_tiling, check_in_survey_area
 
 parser = argparse.ArgumentParser()
