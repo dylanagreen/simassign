@@ -5,11 +5,12 @@
 # stdlib imports
 import argparse
 from datetime import datetime
+import math
 from pathlib import Path
 import time
 
 # Non DESI imports
-from astropy.table import Table, unique
+from astropy.table import Table
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -24,7 +25,7 @@ parser.add_argument("--density_assign", required=False, action="store_true", hel
 parser.add_argument("--use_marker", required=False, action="store_true", help="use the marker when making the plots.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated plots.")
 parser.add_argument("-n", "--name", required=False, type=str, help="name suffix to attach to saved plots.")
-parser.add_argument("--tiles", required=False, type=str, help="file of tiles and observation dates to add date timestamping to the plots.")
+parser.add_argument("--tiles", required=False, nargs='+', default=[], help="file of tiles and observation dates to add date timestamping to the plots.")
 parser.add_argument("--bydate", required=False, action="store_true", help="plot points by date and not cumulative number of exposures.")
 args = parser.parse_args()
 
@@ -41,31 +42,62 @@ nobs_arrs = [np.load(parent_dir / f"nobs_{suffix}.npy") for suffix in args.suffi
 at_least_arrs = [np.load(parent_dir / f"at_least_{suffix}.npy") for suffix in args.suffixes]
 fraction_arrs = [np.load(parent_dir / f"fraction_{suffix}.npy") for suffix in args.suffixes]
 
-if args.tiles is not None:
-    # Use tiles file to generate the ntiles per night, if its passed.
-    tbl = Table.read(args.tiles)
-    tbl = tbl[tbl["TILEDONE"]]
+if len(args.tiles) > 0:
+    ntiles_cum_arrs = []
+    time_arrs = []
+    assert len(args.tiles) == len(args.suffixes), "Must provide a tiles file for each of the datasets"
 
-    unique_nights = np.unique(tbl["TIMESTAMP_YMD"])
-    tiles_per_night = [0] + [np.sum(tbl["TIMESTAMP_YMD"] == n) for n in unique_nights]
+    max_years = 1
+    all_months = []
+    for tilefile in args.tiles:
+        # Use tiles file to generate the ntiles per night, if its passed.
+        tbl = Table.read(tilefile)
+        tbl = tbl[tbl["TILEDONE"]]
 
-    ntiles_cum_arrs = [np.cumsum(tiles_per_night) for _ in range(len(nobs_arrs))]
+        unique_nights = np.unique(tbl["TIMESTAMP_YMD"])
+        tiles_per_night = [0] + [np.sum(tbl["TIMESTAMP_YMD"] == n) for n in unique_nights]
 
-    if args.bydate:
-        night_0 = datetime.strptime(unique_nights[0][:4], "%Y") # Base everything around of the year.
-        nights = [datetime.strptime(n, "%Y%m%d") for n in unique_nights]
-        delta_night = [0] + [(n - night_0).days for n in nights]
+        tbl["MONTH"] = [t[:6] for t in tbl["TIMESTAMP_YMD"]]
+        unique_months = np.unique(tbl["MONTH"])
+        all_months.append(unique_months)
 
-        print(delta_night)
+        ntiles_cum_arrs.append(np.cumsum(tiles_per_night))
 
-        time_arrs = [delta_night for _ in range(len(nobs_arrs))]
+        max_years = max([max_years, ((datetime.strptime(unique_nights[-1], "%Y%m%d") - datetime.strptime(unique_nights[0], "%Y%m%d")).days) / 365])
 
+        if args.bydate:
+            night_0 = datetime.strptime(unique_nights[0][:4], "%Y") # Base everything around start of the year.
+            nights = [datetime.strptime(n, "%Y%m%d") for n in unique_nights]
+            delta_night = [0] + [(n - night_0).days for n in nights]
+
+            time_arrs.append(delta_night)
+
+    max_years = math.ceil(max_years)
 else:
     ntiles_arrs = [np.load(parent_dir / f"ntiles_{suffix}.npy") for suffix in args.suffixes]
     ntiles_cum_arrs = [np.load(parent_dir / f"ntiles_cum_{suffix}.npy") for suffix in args.suffixes]
 t_end = time.time()
 print(f"Loading took {t_end - t_start} seconds...")
 
+def generate_months(night_0, nyears=5):
+    month_0 = night_0.strftime("%Y%m")
+    cur_year = int(month_0[:4])
+    cur_month = int(month_0[4:])
+
+    months = []
+    for i in range(nyears):
+        while cur_month <= 12:
+            months.append(str(cur_year) + str(cur_month).zfill(2))
+
+            cur_month += 1
+        cur_year += 1
+        cur_month = 1
+
+    # Bonus month for gettign everything to align correctly (i.e. we need time
+    # all the way through the final month, so need the last month as a grid line.)
+    months.append(str(cur_year) + str(cur_month).zfill(2))
+
+    return months
 
 if args.pertile:
     # Comparison plot by number of tiles in each exposure.
@@ -105,17 +137,10 @@ if args.pertile:
     plt.legend()
     ax.grid(alpha=0.5)
     tile_max = np.max([arr[-1] for arr in ntiles_cum_arrs])
-    ax.set(xlim=(0, tile_max), ylim=(0, np.max(densities)), xlabel="Num. Exposures", ylabel=ylbl)
+    ax.set(xlabel="Num. Exposures", ylabel=ylbl)
 
-    if args.tiles is not None:
-        # Use tiles file to make the grid linked to months of the survey.
-        tbl = Table.read(args.tiles)
-        tbl = unique(tbl, ["TILEID", "TIMESTAMP_YMD"])
-        tbl = tbl[tbl["TILEDONE"]]
-
-        unique_nights = np.unique(tbl["TIMESTAMP_YMD"])
-        tbl["MONTH"] = [t[:6] for t in tbl["TIMESTAMP_YMD"]]
-        unique_months = np.unique(tbl["MONTH"])
+    if len(args.tiles) > 0:
+        unique_months = generate_months(night_0, 6)
 
         print("Unique months", len(unique_months))
 
@@ -130,13 +155,8 @@ if args.pertile:
 
 
         ax.set(xticks=month_ticks, xticklabels="")
-        for i in range(0, len(month_ticks), 12):
+        for i in range(1, len(month_ticks), 12):
             ax.axvline(month_ticks[i - 1], c="r")
-
-        # tiles_per_month = [np.sum(tbl["TIMESTAMP_YMD"] == m) for m in unique_nights]
-        # cum_tiles_per_month = np.cumsum(tiles_per_month)
-        # print(ntiles_cum_arrs[0])
-        # print(cum_tiles_per_month)
 
         ax.set(xlabel="Month", xlim=(0, month_ticks[-1]))
 
@@ -152,5 +172,7 @@ if args.pertile:
 # python summary_plots.py --suffixes lae-1000-big-inputtiles-withstds lae-1000-big-inputtiles-withstds-test --goals 4 4 -o . --pertile --labels "Base" "Test" --name "lae_1000_300sqdeg" -i /pscratch/sd/d/dylang/fiberassign/processed/
 
 # python summary_plots.py --suffixes 5years-offsettiles-4exp-lae-1000 5years-offsettiles-4exp-lae-1200 --goals 4 4 --pertile --label "5 Years 1000 sq deg^-2" "5 Years 1200 sq deg^-2" -i /pscratch/sd/d/dylang/fiberassign/processed/ -o . --name "offsettiles_laeonly_5yrs_fraction"
-# python summary_plots.py --suffixes 5years-offsettiles-4exp-lae-1975 5years_corrected-offsettiles-4exp-lae-1000 --goals 4 4 --pertile --label "5 Years 1975 sq deg^-2" "5 Years 1000 sq deg^-2" -i /pscratch/sd/d/dylang/fiberassign/processed/ -o . --name "offsettiles_laeonly_5yrs" --density_assign --tiles /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits
+# python summary_plots.py --suffixes 5years_corrected_reproc-offsettiles-4exp-lae-1975 5years_corrected_reproc-offsettiles-4exp-lae-1000 --goals 4 4 --pertile --label "5 Years 1975 sq deg^-2" "5 Years 1000 sq deg^-2" -i /pscratch/sd/d/dylang/fiberassign/processed/ -o . --name "offsettiles_laeonly_5yrs" --density_assign --tiles /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits
 
+
+# python summary_plots.py --suffixes 6years_offset-tiles-4exp-lae-1975 5years_corrected_reproc-offsettiles-4exp-lae-1975 --goals 4 4 --pertile --label "6 Years 1975 deg^-2" "5 Years 1975 deg^-2" -i /pscratch/sd/d/dylang/fiberassign/processed/ -o . --name "offsettiles_laeonly_by_yearc" --density_assign --tiles /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits
