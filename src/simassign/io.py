@@ -5,6 +5,8 @@ import numpy as np
 # Stdlib imports
 from multiprocessing import Pool
 
+from simassign.mtl import deduplicate_mtl
+
 def load_catalog(file_loc, box=None):
     """
     Load a catalog of targets located at file_loc, and return their right
@@ -49,11 +51,15 @@ def load_catalog(file_loc, box=None):
 
     return np.array(tbl["RA"]), np.array(tbl["DEC"])
 
-def load_mtl(mtl_loc):
-    print(f"Loading {mtl_loc.name}")
-    return Table.read(mtl_loc)
+def load_mtl(mtl_loc, deduplicate_on_load=False):
+    # TODO docstirng?
+    print(f"Loading {mtl_loc.name} with deduplicate_on_load={deduplicate_on_load}")
+    tbl = Table.read(mtl_loc)
+    if deduplicate_on_load:
+        tbl = deduplicate_mtl(tbl)
+    return tbl
 
-def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
+def load_mtl_all(mtl_dir, as_dict=False, nproc=1, deduplicate_on_load=False):
     """
     Load all MTLs split by healpix stored in mtl_dir.
 
@@ -77,6 +83,10 @@ def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
     nproc : int
         Number of processes to use to parallelize the loading. Defaults to 1
 
+    deduplicate_on_load : bool
+        Whether to deduplicate the table to get only the latest entries for all targets
+        at loading time. Defaults to False.
+
     Returns
     -------
     :class:`~astropy.table.Table` or dict
@@ -94,12 +104,13 @@ def load_mtl_all(mtl_dir, as_dict=False, nproc=1):
 
     assert len(locs) > 0, "No mtls found as either ecsv or fits!"
 
-
     # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
     pixlist = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
 
+    args = [(l, deduplicate_on_load) for l in locs]
+
     with Pool(nproc) as p:
-        tbls = p.map(load_mtl, locs)
+        tbls = p.starmap(load_mtl, args)
 
     if as_dict:
         for i, temp_tbl in enumerate(tbls):
