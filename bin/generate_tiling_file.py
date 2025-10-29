@@ -19,7 +19,7 @@ from pathlib import Path
 # TODO remove this at some point to point to a generic simassign import.
 import sys
 sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
-from simassign.util import rotate_tiling
+from simassign.util import rotate_tiling, check_in_survey_area
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
@@ -27,9 +27,10 @@ parser.add_argument("--ramin", required=False, type=float, help="minimum RA angl
 parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
-parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated tile file.")
+parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
+parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 args = parser.parse_args()
 
@@ -126,6 +127,12 @@ tiles["DONEFRAC"] = 0.0
 tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
 
+if args.trim:
+    in_ngc, in_sgc = check_in_survey_area(tiles)
+    tiles["IN_DESI"] = False
+    tiles["IN_DESI"][in_ngc | in_sgc] = True
+
+# Need these for survey sim
 tiles_bright = Table(tiles[1])
 tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
 tiles_bright["PROGRAM"] = "BRIGHT"
@@ -138,27 +145,12 @@ tiles_backup["IN_DESI"] = True
 
 tiles = vstack([tiles, tiles_backup, tiles_bright])
 
-
-print(tiles[tiles["IN_DESI"]])
 print(tiles)
-
-
-# print(np.unique(ts))
-
-
-base_dir = Path(args.outdir)
-fname = f"tiles-{args.npass}pass-superset.ecsv"
-if args.fourex:
-    if args.collapse:
-        fname = f"tiles-{args.npass // 4}pass-movable_collimator-superset.ecsv"
-    else:
-        fname = f"tiles-{args.npass // 4}pass-movable_collimator-fastmtl-superset.ecsv"
-
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
+print(np.sum(tiles["IN_DESI"]), "in DESI")
+print(f"Saving to... {args.out}")
 
-print(f"Saving to... {base_dir / fname}")
-
-tiles.write(base_dir / fname, format="ascii.ecsv", overwrite=True)
+tiles.write(args.out, format="ascii.ecsv", overwrite=True)
 
 # %ECSV 1.0
 # ---
