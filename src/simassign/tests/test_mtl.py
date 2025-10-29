@@ -133,6 +133,66 @@ class TestMTLInits(unittest.TestCase):
         self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] >= 0))
         self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] <= 1))
 
+    def test_initialize_mtl_mixed_tagets(self):
+        tbl = Table()
+        # Could use random objects here but we want this to be reproducible,
+        # and for this test the location of the objects is entirely irrelevant.
+        n_obj = 100
+        tbl["RA"] = np.linspace(110, 120, n_obj)
+        tbl["DEC"] = np.linspace(10, 20, n_obj)
+
+        # 50 of each LAE/LBG
+        n_lbg = 50
+        nums = {"LAE": n_obj - n_lbg, "LBG": n_lbg}
+        tbl["DESI_TARGET"] = 2**2
+        tbl["DESI_TARGET"][n_lbg:] = 2**3
+
+        observed_mtl = initialize_mtl(tbl)
+
+        expected_colnames = ["RA", "DEC", "PRIORITY", "SUBPRIORITY", "PRIORITY_INIT",
+                             "TARGETID", "TARGET_STATE", "TIMESTAMP", "VERSION",
+                             "OBSCONDITIONS", "NUMOBS", "NUMOBS_INIT", "NUMOBS_MORE",
+                             "DESI_TARGET", "BGS_TARGET", "MWS_TARGET", "SCND_TARGET",
+                             "Z", "Z_QN", "ZWARN", "IS_QSO_QN", "DELTACHI2",
+                             "HEALPIX", "ZTILEID"]
+
+        # Using sets because the order does not matter
+        self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))
+
+        # TODO a better way to do this bit detecting?
+        for target in self.targetmask["desi_mask"]:
+            true_bit = target[1]
+            name = target[0]
+            this_target = (observed_mtl["DESI_TARGET"] & 2**true_bit) != 0
+
+            # 50 of each target in the output MTL.
+            num_targ = nums[name]
+            self.assertEqual(np.sum(this_target), num_targ)
+
+            np.testing.assert_array_equal(observed_mtl["DESI_TARGET"][this_target],
+                                        2**true_bit * np.ones(num_targ, dtype=int))
+            np.testing.assert_array_equal(observed_mtl["MWS_TARGET"][this_target],
+                                        np.zeros(num_targ, dtype=int))
+            np.testing.assert_array_equal(observed_mtl["BGS_TARGET"][this_target],
+                                        np.zeros(num_targ, dtype=int))
+
+            priority = self.targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+            print(priority)
+            np.testing.assert_array_equal(observed_mtl["PRIORITY"][this_target],
+                                        priority * np.ones(num_targ, dtype=int))
+
+            nobs_init = self.targetmask["numobs"]["desi_mask"][name]
+            np.testing.assert_array_equal(observed_mtl["NUMOBS"][this_target],
+                                        np.zeros(num_targ, dtype=int))
+            np.testing.assert_array_equal(observed_mtl["NUMOBS_INIT"][this_target],
+                                        nobs_init * np.ones(num_targ, dtype=int))
+            np.testing.assert_array_equal(observed_mtl["NUMOBS_MORE"][this_target],
+                                        nobs_init * np.ones(num_targ, dtype=int))
+
+        # Subpriority is random but we should ensure that it's between zero and one.
+        self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] >= 0))
+        self.assertTrue(np.all(observed_mtl["SUBPRIORITY"] <= 1))
+
 class TestMTLUpdates(unittest.TestCase):
     def setUp(self):
         # Need this for checking priorities etc.

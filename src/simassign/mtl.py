@@ -200,7 +200,10 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     base_tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the targets. At minimum
         this must include the RA and DEC coordinates of the targets. Other
-        columns will be overwritten as necessary.
+        columns will be overwritten as necessary. If base_tbl includes
+        a DESI_TARGET column, it will be used to set priorities and NUMOBS
+        based on the targetmask.yaml. Otherwise if this column is not provided
+        all targets will be assumed to be LAEs.
 
     save_dir : str or :class:`~pathlib.Path`
        If given, where to save the produced MTL. Saving the MTL is done using
@@ -244,12 +247,13 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     brickid = idcs // obj_bits
     tbl["TARGETID"] = encode_targetid(objid, brickid, release=9010, mock=1)
 
-    assert len(tbl) == len(np.unique(tbl["TARGETID"])), "some non unique targetids"
+    assert len(tbl) == len(np.unique(tbl["TARGETID"])), "Some non unique targetids"
 
     # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
-    # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
     # TODO tests indicated that fiberassign hangs indefinitely if you use a non-DESI bit, investigate further...
-    tbl["DESI_TARGET"] = 2**2
+    # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
+    if "DESI_TARGET" not in tbl.colnames:
+        tbl["DESI_TARGET"] = 2**2 # Sets target bit all to LAE if it doesn't exist.
 
     # These two are unused but necessary to exist for mtl
     tbl["BGS_TARGET"] = 0
@@ -276,7 +280,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         keep_cols = tbl.colnames
         tbl = vstack([tbl, stds_tbl[keep_stds][keep_cols]])
 
-    target_name = "LAE"
+    # target_name = "LAE"
     targetmask = load_target_yaml("targetmask.yaml")
 
     print(f"{len(pixlist)} HEALpix.")
@@ -301,16 +305,20 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
             hpx = mtl_loc.name.split("-")[-1].split(".")[0]
             temp_tbl["HEALPIX"] = int(hpx)
 
-            is_lae = temp_tbl["TARGET_STATE"] != "CALIB"
+            for target in targetmask["desi_mask"]:
+                bit = 2**target[1]
+                name = target[0]
+                this_target = (temp_tbl["DESI_TARGET"] & bit) != 0
 
-            # Update to custom target type.
-            # temp_tbl["DESI_TARGET"] = 2**22
-            temp_tbl["TARGET_STATE"][is_lae] = "LAE|UNOBS"
-            temp_tbl["NUMOBS_INIT"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
-            temp_tbl["NUMOBS_MORE"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
+                # Update to custom target type.
+                temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
+                temp_tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
+                temp_tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
 
-            temp_tbl["TIMESTAMP"] = "2024-12-01T00:00:00+00:00" # Want the init timemstamp to be early.
+                temp_tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+                temp_tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
 
+            temp_tbl["TIMESTAMP"] = "2024-12-01T00:00:00+00:00" # Want the init timemstamp to be earlier than the survey (20250101)
             temp_tbl.write(mtl_loc, overwrite=True) # Keep the original file extension.
             # mtl_loc.unlink()
 
@@ -325,19 +333,25 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
             mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:
         mtl_all = make_mtl(tbl, "DARK")
-        is_lae = mtl_all["TARGET_STATE"] != "CALIB"
 
-        # Destiny is ours to choose.
-        mtl_all["TARGET_STATE"][is_lae] = "LAE|UNOBS"
-        mtl_all["NUMOBS_INIT"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
-        mtl_all["NUMOBS_MORE"][is_lae] = targetmask["numobs"]["desi_mask"][target_name]
+        for target in targetmask["desi_mask"]:
+            bit = 2**target[1]
+            name = target[0]
+            this_target = (mtl_all["DESI_TARGET"] & bit) != 0
 
-        # Relcaulate this to include the standards.
+            # Destiny is ours to choose.
+            mtl_all["TARGET_STATE"][this_target] = f"{name}|UNOBS"
+            mtl_all["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
+            mtl_all["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
+
+            mtl_all["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+            mtl_all["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+
+        # Relcaulate this to include the standards in the healpix calculation.
         theta, phi = np.radians(90 - mtl_all["DEC"]), np.radians(mtl_all["RA"])
         hpx = hp.ang2pix(nside, theta, phi, nest=True)
 
         mtl_all["HEALPIX"] = hpx
-
         mtl_all.sort("TARGETID")
 
     if return_mtl_all:

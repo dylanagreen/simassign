@@ -1,11 +1,14 @@
 desi_mask:
     - [LAE,         2, "LAE",                    {obsconditions: DARK}]
+    - [LBG,         3, "LBG",                    {obsconditions: DARK}]
 
 priorities:
     desi_mask:
         # Increase priority when we have a zgood.
         LAE: {UNOBS: 3400, MORE_ZGOOD: 3450, DONE: 2, OBS: 1, DONOTOBSERVE: 0, MORE_MIDZQSO: 0}
+        LBG: {UNOBS: 3500, MORE_ZGOOD: 3550, DONE: 2, OBS: 1, DONOTOBSERVE: 0, MORE_MIDZQSO: 0}
 
 numobs:
     desi_mask:
-        LAE: 4
+        LAE: 1
+        LBG: 8
