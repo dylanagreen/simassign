@@ -16,9 +16,6 @@ import time
 import fitsio
 import numpy as np
 
-# TODO remove this at some point to point to a generic simassign import.
-import sys
-sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.io import *
 from simassign.util import get_nobs_arr
 
@@ -59,7 +56,7 @@ print(f"Loading took {t_end - t_start} seconds...")
 
 timestamps = [np.array(mtl["TIMESTAMP"], dtype=str) for mtl in mtl_all.values()]
 timestamps = np.concatenate(timestamps)
-timestamps = np.unique(timestamps)
+timestamps = np.unique(timestamps)#[:15]
 nobs = len(timestamps)
 
 print(f"Calculating values...")
@@ -67,7 +64,8 @@ print(f"Calculating values...")
 print("Generating num obs per update arr....")
 t_start = time.time()
 
-print(len(list(mtl_all.values())))
+print("Num mtls:", len(list(mtl_all.values())))
+print("Num obs:", nobs)
 
 def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
@@ -89,7 +87,7 @@ for i, r in enumerate(res):
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
 
-# [0,0] is the "at least zero exposures with zero iterations" which should include
+# [0,0] is the "at least zero exposures at zero iterations" which should include
 # every single object at this point.
 fraction = at_least / at_least[0, 0]
 

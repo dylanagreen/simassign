@@ -13,6 +13,7 @@
 import argparse
 from datetime import datetime, timedelta
 from multiprocessing import Pool
+import sys
 import time
 
 # Non-DESI Imports
@@ -29,16 +30,12 @@ from fiberassign.scripts.assign import parse_assign, run_assign_full
 # stdlib imports
 from pathlib import Path
 
-# TODO remove this at some point to point to a generic simassign import.
-import sys
-sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
 from simassign.mtl import *
 from simassign.util import *
 from simassign.io import load_catalog, load_mtl_all
 
-
 import logging
-LEVEL = 15 # More thand bug less than info
+LEVEL = 15 # More than debug less than info
 logging.addLevelName(LEVEL, "DETAILS")
 
 def details(self, message, *args, **kws):
@@ -49,7 +46,7 @@ log = logging.getLogger(__name__)
 log.setLevel(LEVEL-1)
 
 # I need to log things instead of print because of the way multiprocessing
-# works all the text printed will be hijacked until the end of the script
+# works: all the text printed will be hijacked until the end of the script
 # but it's actually of debug benefit to have it in the right place.
 handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
@@ -118,6 +115,9 @@ tile_loc = Path(args.tiles)
 tiles = Table.read(tile_loc)
 
 loaded_from_checkpoint = False
+# Check for healpixels AND fiber assignments, if there's only the former the
+# script may have interrupted when the catalog was still being generated, and
+# we may attempt an incomplete checkpoint load.
 if hp_base.is_dir() and fba_base.is_dir():
     # Attempt to checkpoint
     mtl_all = load_mtl_all(hp_base, as_dict=True, nproc=args.nproc)
@@ -226,6 +226,7 @@ with Pool(args.nproc) as p:
         t_end_curr = time.time()
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
         log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
+        # TODO send night as TIMESTAMP_YMD instead of i to save by night date instead of an arbitrary int.
         targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
 
         # Worthwhile to keep this for summary plot purposes
