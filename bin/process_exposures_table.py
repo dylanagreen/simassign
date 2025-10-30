@@ -31,7 +31,7 @@ times = times.to_datetime()
 
 # The starting date for the MTL is late 2024, so we need the survey to start in 2025
 # otherwise things get really weird.
-if times[0] < datetime.strptime("20250101", "%Y%m%d"):
+if np.min(times) < datetime.strptime("20250101", "%Y%m%d"):
     times = times + timedelta(days=365)
 
 # timestamps = [t.isoformat() for t in times]
@@ -53,3 +53,26 @@ unique_per_night["TILEDONE"] = unique_per_night["SNR2FRAC"] >= 1
 
 print(unique_per_night)
 unique_per_night.write(args.out, overwrite=True)
+
+
+# python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_offset-tiles-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-offset-tiles-5000deg-30pass-superset.ecsv
+
+# python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_movable-collimator-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_movable-collimator-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-movable-collimator-5000deg-30pass-superset-patched.ecsv
+npass = np.max(tiles_tbl["PASS"])
+tiles_per_pass = np.bincount(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]], minlength=npass)
+
+finished_per_pass = np.bincount(unique(joined, "TILEID")["PASS"], minlength=npass)
+
+# print(np.unique(joined["PASS"]), np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]]))
+frac_done = finished_per_pass / tiles_per_pass
+fix, ax = plt.subplots(figsize=(8, 4))
+plt.plot(np.arange(npass + 1) , frac_done)
+ax.grid(alpha=0.5)
+
+mean_completion = np.nanmean(frac_done)
+ax.axhline(mean_completion, c="r")
+print(mean_completion, mean_completion * npass)
+
+ax.set(xlabel="Pass Number", ylabel="Fraction of Tiles in Pass Observed")
+
+plt.savefig("finished.jpg", bbox_inches="tight", dpi=256)
