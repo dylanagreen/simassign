@@ -457,6 +457,75 @@ def get_nobs_arr(mtl, global_timestamps=None):
 
     return nobs_arr, at_least_n
 
+def get_targ_done_arr(mtl, global_timestamps=None):
+    """
+    Given an MTL generate an array of the number of targets with $m <= N$ observations
+    after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
+    correspond with the end of a pass or an observing night, depending on strategy
+    used.
+
+    Parameters
+    ----------
+    mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table representing the MTL. It is
+        necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
+
+    global_timestamps : :class:`~numpy.array`
+        An array of global timestamps to use for generating the number of observations.
+        I.e. return the number of observations at each timestamp in global_timestamps
+        rather than at each timestamp in the input mtl. Optional, defaults to None,
+        which uses the timestamps in the input mtl.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Array storing the number of targets with the number of observations
+        given by the 1st axis, at the update number given by the position
+        in the 0th axis. For example, the position obs_arr[6, 3] indicates
+        how many targets have *exactly* 3 exposures after 6 MTL updates.
+
+    :class:`~numpy.array`
+        Array storing the number of targets with *at least* the number of
+        observations given by the 1st axis. For example, the position
+        at_least_arr[6, 3] indicates
+        how many targets have 3 *or more* exposures after 6 MTL updates.
+    """
+    timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
+
+    if global_timestamps is not None:
+        unique_timestamps = np.unique(global_timestamps)
+    else:
+        unique_timestamps = np.unique(timestamps)
+    # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
+
+    # Timestamps correspond with when the MTL was created/updated
+    # So we can loop over the timestamps to get information from each
+    # fiberassign run.
+    is_std = mtl["TARGET_STATE"] == "CALIB"
+    good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
+    # print(f"Num not LAE or LBG: {np.sum(~(~is_std & good_targ))}")
+    targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
+
+    # print(targs)
+
+    nobs = len(unique_timestamps)
+    ntargs = len(targs)
+    nobs_arr = np.zeros((ntargs, nobs))
+    num_each_targ = np.zeros(ntargs)
+    for i, time in enumerate(unique_timestamps):
+        keep_rows = timestamps <= time
+        # print(sum(keep_rows))
+
+        trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
+        is_done = trunc_mtl["NUMOBS_MORE"] == 0
+        for j, t in enumerate(targs):
+            nobs_arr[j, i] = np.sum(is_done[trunc_mtl["DESI_TARGET"] == t])
+
+            if i == 0:
+                num_each_targ[j] = np.sum(trunc_mtl["DESI_TARGET"] == t)
+
+    return nobs_arr, num_each_targ
+
 # Points defining the hulls surrounding the survey area.
 ngc_points = np.array([[ 1.49244e+02, -6.97500e+00],
                         [ 2.21244e+02, -6.97500e+00],

@@ -17,13 +17,14 @@ import fitsio
 import numpy as np
 
 from simassign.io import *
-from simassign.util import get_nobs_arr
+from simassign.util import get_nobs_arr, get_targ_done_arr
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mtls", required=True, type=str, help="base directory of mtls to process")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated files.")
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
+parser.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
@@ -70,29 +71,59 @@ print("Num obs:", nobs)
 def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
 
-with Pool(args.nproc) as p:
-     res = p.map(get_nobs_mp, list(mtl_all.values()))
+def get_done_mp(mtl):
+     return get_targ_done_arr(mtl, timestamps)
 
-# res = []
-# for k, v in mtl_all.items():
-#      res.append(get_nobs_mp(v))
+if args.nobs:
+    with Pool(args.nproc) as p:
+        res = p.map(get_nobs_mp, list(mtl_all.values()))
 
-nobs = np.zeros(res[0][0].shape)
-at_least = np.zeros(res[0][1].shape)
+    # res = []
+    # for k, v in mtl_all.items():
+    #      res.append(get_nobs_mp(v))
 
-for i, r in enumerate(res):
-     nobs += r[0]
-     at_least += r[1]
+    nobs = np.zeros(res[0][0].shape)
+    at_least = np.zeros(res[0][1].shape)
+
+    # Res is an array of tuples (tuples the return of get_nobs) so this just
+    # unpacks all the tuples.
+    for i, r in enumerate(res):
+        nobs += r[0]
+        at_least += r[1]
+
+
+    # [0,0] is the "at least zero exposures at zero iterations" which should include
+    # every single object at this point.
+    fraction = at_least / at_least[0, 0]
+
+    print("Writing nobs arrs...")
+    np.save(out_dir / f"nobs_{args.suffix}.npy", nobs)
+    np.save(out_dir / f"at_least_{args.suffix}.npy", at_least)
+    np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
+else:
+    with Pool(args.nproc) as p:
+        res = p.map(get_done_mp, list(mtl_all.values()))
+
+    done = np.zeros(res[0][0].shape)
+    n_tot = np.zeros(res[1][1].shape)
+
+    for i, r in enumerate(res):
+        done += r[0]
+        n_tot += r[1]
+
+    fraction = done / n_tot[:, None] # Should hopefully broadcast correctly.
+
+    print("Writing done arrs...")
+    np.save(out_dir / f"done_{args.suffix}.npy", done)
+    np.save(out_dir / f"n_tot_{args.suffix}.npy", n_tot)
+    np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
 
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
 
-# [0,0] is the "at least zero exposures at zero iterations" which should include
-# every single object at this point.
-fraction = at_least / at_least[0, 0]
 
 t_start = time.time()
-# del res
+del res
 
 print("Getting n_tiles...")
 with Pool(args.nproc) as p:
@@ -100,11 +131,10 @@ with Pool(args.nproc) as p:
 ntiles.insert(0, 0)
 ntiles_cum = np.cumsum(ntiles)
 
+t_end = time.time()
 print(f"Get Tiles took {t_end - t_start} seconds...")
 
-print("Writing all files...")
-np.save(out_dir / f"nobs_{args.suffix}.npy", nobs)
-np.save(out_dir / f"at_least_{args.suffix}.npy", at_least)
-np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
+print("Writing n_tiles...")
+
 np.save(out_dir / f"ntiles_{args.suffix}.npy", ntiles)
 np.save(out_dir / f"ntiles_cum_{args.suffix}.npy", ntiles_cum)
