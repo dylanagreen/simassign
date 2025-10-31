@@ -25,11 +25,8 @@ def load_catalog(file_loc, box=None):
 
     Returns
     -------
-    ra : :class:`~numpy.array`
-        Right ascension of targets in the catalog,.
-
-    dec : :class:`~numpy.array`
-        Declination of all targets in catalog.
+    :class:`~astropy.table.Table`
+        Catalog as an astropy table.
 
     """
     # TODO: support arbitrary cutting geometry.
@@ -49,7 +46,7 @@ def load_catalog(file_loc, box=None):
 
         tbl = tbl[in_ra & in_dec]
 
-    return np.array(tbl["RA"]), np.array(tbl["DEC"])
+    return tbl
 
 def load_mtl(mtl_loc, deduplicate_on_load=False):
     # TODO docstirng?

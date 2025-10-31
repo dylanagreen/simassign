@@ -89,16 +89,27 @@ if args.danger:
 rng = np.random.default_rng(91701)
 if args.density:
     ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
+
+    tbl = Table()
+    tbl["RA"] = ra
+    tbl["DEC"] = dec
 elif (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
-    ra, dec = load_catalog(args.catalog, [args.ramin, args.ramax, args.decmin, args.decmax])
+    tbl = load_catalog(args.catalog, [args.ramin, args.ramax, args.decmin, args.decmax])
 else:
-    ra, dec = load_catalog(args.catalog)
+    tbl = load_catalog(args.catalog)
 
-log.details(f"Generated {len(ra)} targets...")
+# TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
+# table, so it breaks the stacking of the two.
+if "TARGETID" in tbl.colnames:
+    del tbl["TARGETID"]
 
-tbl = Table()
-tbl["RA"] = ra
-tbl["DEC"] = dec
+if "Z_COSMO" in tbl.colnames:
+    del tbl["Z_COSMO"]
+
+ra = tbl["RA"]
+dec = tbl["DEC"]
+
+log.details(f"Using {len(tbl)} targets...")
 
 nside = 64
 theta, phi = np.radians(90 - dec), np.radians(ra)
@@ -245,7 +256,7 @@ with Pool(args.nproc) as p:
         log.details(f"Assignment took {t_end_assign - t_start_assign} seconds...")
 
         unique_tids, counts = np.unique(assigned_tids, return_counts=True)
-        log.details(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}")
+        log.details(f"Sanity check on tid updates: {len(assigned_tids)}, {len(unique_tids)}, {np.unique(counts)}, {assigned_tids.dtype}")
 
         # Step 3 update the MTL
         # Determining the timestamp to imprint on the MTL update
