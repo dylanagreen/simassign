@@ -269,7 +269,7 @@ with Pool(args.nproc) as p:
         t_mid = time.time()
         times["get_last_time"].append(t_mid - t3)
         # TODO parallelize
-        update_params = [(mtl_all[hpx], assigned_tids, last_time, False) for hpx in hpx_night]
+        update_params = [(mtl_all[hpx], assigned_tids, targetmask, last_time, False) for hpx in hpx_night]
         updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as hpx_night
         for i, hpx in enumerate(hpx_night):
             mtl_all[hpx] = updated_tbls[i]

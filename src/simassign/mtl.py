@@ -17,7 +17,7 @@ from pathlib import Path
 import shutil
 import yaml
 
-def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbose=False):
+def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitarget=False, verbose=False):
     """
     Update an MLT after taking an observation of `tids_to_update`.
 
@@ -95,7 +95,8 @@ def update_mtl(mtl, tids_to_update, timestamp=None, use_desitarget=False, verbos
         nobs_more = mtl_updates["NUMOBS_MORE"]
         mtl_updates["NUMOBS_MORE"] = np.where(nobs_more > 0, nobs_more - 1, 0)
 
-        targetmask = load_target_yaml("targetmask.yaml")
+        if targetmask is None:
+            targetmask = load_target_yaml("targetmask.yaml")
 
         was_unobs = mtl_updates["NUMOBS"] == 1
         is_complete = mtl_updates["NUMOBS_MORE"] == 0
@@ -253,6 +254,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     # TODO tests indicated that fiberassign hangs indefinitely if you use a non-DESI bit, investigate further...
     # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
     if "DESI_TARGET" not in tbl.colnames:
+        print("DESI_TARGET not found... setting everything to LAEs")
         tbl["DESI_TARGET"] = 2**2 # Sets target bit all to LAE if it doesn't exist.
 
     # These two are unused but necessary to exist for mtl
@@ -290,7 +292,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
 
         # Run mtl to split them into healpix ledgers.
         make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
-
         hp_base = base_dir / "hp" / "main" / "dark"
 
         if as_dict:
@@ -309,6 +310,8 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
                 bit = 2**target[1]
                 name = target[0]
                 this_target = (temp_tbl["DESI_TARGET"] & bit) != 0
+
+                print(f"Init Target {target} {np.sum(this_target)}")
 
                 # Update to custom target type.
                 temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
