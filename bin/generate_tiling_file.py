@@ -26,10 +26,13 @@ parser.add_argument("--decmax", required=False, type=float, help="maximum DEC an
 parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
-parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
+
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
+group.add_argument("--twoex", action="store_true", help="take two exposures of a single tiling rather than two unique tilings.")
 args = parser.parse_args()
 
 # Load the geometry superset to get the tiling of the entire sky.
@@ -44,20 +47,22 @@ base_tiles = tiles[zero_pass & dark_tile]
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
 tile_rad =  get_tile_radius_deg()
-margin = tile_rad - 0.2
+margin = tile_rad - 0.4
 
 pass_tilings = []
 for i in range(1, args.npass + 1):
     print(f"Generating tiling for pass {i}...")
     if args.fourex: # Repeat each tiling four times before moving to the next one
          passnum = (i + 3) // 4
+    elif args.twoex:
+        passnum = (i + 1) // 2
     else:
          passnum = i
     tiles = rotate_tiling(base_tiles, passnum)
 
     # IF we're not collapsing but we are doing 4x, give each "pass" a unique
     # tileid, so that we keep all four passes on joins.
-    if args.fourex and not args.collapse:
+    if (args.fourex or args.twoex) and not args.collapse:
         tileids = np.arange(len(tiles)) + i * 10000
         tiles["TILEID"] = tileids
 
@@ -131,13 +136,15 @@ if args.trim:
     tiles["IN_DESI"][in_ngc | in_sgc] = True
 
 # Need these for survey sim
-tiles_bright = Table(tiles[1])
+tiles_bright = Table(tiles[tiles["IN_DESI"]][1])
 tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
+tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
 tiles_bright["PROGRAM"] = "BRIGHT"
 tiles_bright["IN_DESI"] = True
 
-tiles_backup = Table(tiles[-1])
+tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
 tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
+tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
 tiles_backup["PROGRAM"] = "BACKUP"
 tiles_backup["IN_DESI"] = True
 
@@ -146,6 +153,8 @@ tiles = vstack([tiles, tiles_backup, tiles_bright])
 print(tiles)
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
 print(np.sum(tiles["IN_DESI"]), "in DESI")
+
+
 print(f"Saving to... {args.out}")
 
 tiles.write(args.out, format="ascii.ecsv", overwrite=True)
