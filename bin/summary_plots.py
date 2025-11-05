@@ -20,18 +20,17 @@ parser.add_argument("--suffixes", required=True, nargs='+', default=[], help="li
 parser.add_argument("--goals", required=False, nargs='+', default=[], help="target number of exposures for each associated fiberassign run.")
 parser.add_argument("--labels", required=True, nargs='+', default=[], help="labels to use for each mtl in the output plot.")
 parser.add_argument("--verbose", required=False, action="store_true", help="be verbose when doing everything or not.")
-parser.add_argument("--pertile", required=False, action="store_true", help="plot results per num tile/exposure.")
-parser.add_argument("--density_assign", required=False, action="store_true", help="use density of assigned targets as y axis instead of fraction.")
+parser.add_argument("--densities", required=False, nargs='+', default=[],
+                    help="density of assigned targets to use as y axis instead of fraction. If plotting both LBG and LAE, each element should be a comma separated list with LBG density first.")
 parser.add_argument("--use_marker", required=False, action="store_true", help="use the marker when making the plots.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated plots.")
 parser.add_argument("-n", "--name", required=False, type=str, help="name suffix to attach to saved plots.")
 parser.add_argument("--tiles", required=False, nargs='+', default=[], help="file of tiles and observation dates to add date timestamping to the plots.")
 parser.add_argument("--bydate", required=False, action="store_true", help="plot points by date and not cumulative number of exposures.")
 parser.add_argument("--nobs", required=False, action="store_true", help="use the full nobs array for everything. If not will look for done arrays instead.")
+parser.add_argument("--pertile", required=False, action="store_true", help="plot results per num tile/exposure.")
+parser.add_argument("--mean_exp", required=False, action="store_true", help="plot mean number of exposures per num tile/exposures.")
 args = parser.parse_args()
-
-if args.nobs:
-    assert args.goals, "Must provide goals if using the full nobs array."
 
 out_dir = Path(args.outdir)
 colors = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"] # Okabe and Ito colorbline friendly.
@@ -64,9 +63,9 @@ if len(args.tiles) > 0:
 
         ntiles_cum_arrs.append(np.cumsum(tiles_per_night))
         max_years = max([max_years, ((datetime.strptime(unique_nights[-1], "%Y%m%d") - datetime.strptime(unique_nights[0], "%Y%m%d")).days) / 365])
+        night_0 = datetime.strptime(unique_nights[0][:4], "%Y") # Base everything around start of the year.
 
         if args.bydate:
-            night_0 = datetime.strptime(unique_nights[0][:4], "%Y") # Base everything around start of the year.
             nights = [datetime.strptime(n, "%Y%m%d") for n in unique_nights]
             delta_night = [0] + [(n - night_0).days for n in nights]
 
@@ -108,6 +107,8 @@ if args.nobs:
 
 else:
     done_arrs = [np.load(parent_dir / f"done_{suffix}.npy") for suffix in args.suffixes]
+    print("Dones:")
+    print(done_arrs)
 
 # Fraction arrs exist in both. For the nobs case though they're hughely multi dimensional.
 fraction_arrs = [np.load(parent_dir / f"fraction_{suffix}.npy") for suffix in args.suffixes]
@@ -115,13 +116,16 @@ fraction_arrs = [np.load(parent_dir / f"fraction_{suffix}.npy") for suffix in ar
 t_end = time.time()
 print(f"Loading took {t_end - t_start} seconds...")
 
+use_density = len(args.densities) > 0
+
 if args.pertile:
+    if args.nobs:
+        assert args.goals, "Must provide goals if using the full nobs array to generate pertile."
     # Comparison plot by number of tiles in each exposure.
     # Plots the fraction of assigned targets or assigned density per night/MTL update
     fig, ax = plt.subplots(figsize=(12, 5))
 
     ylbl = "Fraction"
-    densities = [] # For scaling the y axis correctly
     min_x = 100
     max_x = 0
     for i in range(len(fraction_arrs)):
@@ -131,14 +135,10 @@ if args.pertile:
         # fraction space we need to keep track of each curve's unassigned (true)
         # density, but we can set that density to 1 for the case that we don't do that.
         density = 1
-        if args.density_assign:
-            if args.nobs:
-                density = int(name.split("-")[-1])
-            else:
-                density = [1300, 1100]
+        if use_density:
+            density = [int(d) for d in args.densities[i].split(",")]
             ylbl = "Assigned Targets Per Sq. Deg."
 
-        densities.append(density)
         # Index in the arr should correspond with the goal, given the order
         # we load thigns in...
         # NOTE: If we were really worried we could do it as a dict and not a list.
@@ -146,6 +146,8 @@ if args.pertile:
             goal = int(args.goals[i])
             y = fraction_arrs[i][:, goal] * density
         else:
+            # mult = (4 + i * 2) / 4
+            mult = 1
             y = fraction_arrs[i] * np.atleast_1d(density)[:, None]
 
         print(y.shape, ntiles_cum_arrs[i].shape)
@@ -166,11 +168,16 @@ if args.pertile:
         else:
             labels = ["LBG", "LAE"]
             linestyles = ["-", "-."]
-            for j, l in enumerate(labels):
+            for j, l in enumerate(labels[:y.shape[0]]):
                 plt.plot(x, y[j], linestyles[j], label=f"{args.labels[i]} {l}", c=colors[i])
 
         min_x = np.min([min_x, np.min(x)])
         max_x = np.max([max_x, np.max(x)])
+
+        print(f"{args.labels[i]} achieved max: {np.array(y)[:, -1]}")
+
+        # mult = 1 #if i == 0 else 10/8
+        # plt.plot(x, np.sum(y, axis=0) * mult, ls="dashed", label=f"Combined", c=colors[i])
 
     plt.legend()
     ax.grid(alpha=0.5)
@@ -190,21 +197,104 @@ if args.pertile:
             month_ticks = [(datetime.strptime(n, "%Y%m") - night_0).days for n in unique_months]
             print(month_ticks)
 
-
         ax.set(xticks=month_ticks, xticklabels="")
         for i in range(1, len(month_ticks), 12):
             ax.axvline(month_ticks[i - 1], c="r")
 
         ax.set(xlabel="Month", xlim=(0, month_ticks[-1]))
 
-
-    if not args.density_assign: # Visual guidelines for the eye.
-        plt.axhline(y=0.9 * np.max(densities), c="k")
-        plt.axhline(y=0.95 * np.max(densities), c="r")
+    if not use_density: # Visual guidelines for the eye.
+        plt.axhline(y=0.9, c="k")
+        plt.axhline(y=0.95, c="r")
 
     print("Saving...")
     save_name = f"efficiency_per_tile_{args.name}.jpg" if args.name is not None else "efficiency_per_tile.jpg"
     plt.savefig(out_dir / save_name, dpi=256, bbox_inches="tight")
+
+
+if args.mean_exp:
+    assert args.nobs, "Must pass args.nobs if generating mean number of exposures!"
+    # Comparison plot by number of tiles in each exposure.
+    # Plots the fraction of assigned targets or assigned density per night/MTL update
+    fig_mean, ax_mean = plt.subplots(figsize=(8, 4))
+    fig_hist, ax_hist = plt.subplots(figsize=(8, 4))
+
+    ylbl = "Mean Number of Observations"
+    densities = [] # For scaling the y axis correctly
+    min_x = 100
+    max_x = 0
+    for i in range(len(nobs_arrs)):
+        name = args.suffixes[i]
+
+        # Nobs is the number of objects with the number of exposures given by its
+        # tow position, so if we multiply it by the number of exposures we get the number
+        # of times that object appears. Then we get the mean by dividing by the total
+        # number of targets (so essentially, the mean number of exposures is the mean
+        # number of times the targets appear.)
+        nobs = nobs_arrs[i]
+        exp_num = np.arange(nobs.shape[-1])
+        n_with_ob = nobs * exp_num
+        mean_exp = np.sum(n_with_ob, axis=1) / nobs[0, 0] # Recall 0,0 is the total number of objects
+        y = mean_exp
+
+        print(y.shape, ntiles_cum_arrs[i].shape)
+        if not args.bydate:
+            x = ntiles_cum_arrs[i][:fraction_arrs[i].shape[0]]
+        else:
+            x = time_arrs[i]
+
+        marker = "-"
+        if args.use_marker:
+            marker = "-o"
+
+        ax_mean.plot(x, mean_exp, marker, lw=1, label=args.labels[i], c=colors[i])
+
+        min_x = np.min([min_x, np.min(x)])
+        max_x = np.max([max_x, np.max(x)])
+        print(f"{args.labels[i]} achieved max: {np.atleast_2d(y)[:, -1]}")
+
+        bins = np.arange(nobs.shape[-1] + 1) - 0.5
+        ax_hist.stairs(nobs[-1, :], bins, ec=colors[i], label=args.labels[i])
+        ax_hist.axvline(mean_exp[-1], c=colors[i])
+
+    # Use the tiles file to get the month dates of all the points, if provided.
+    if len(args.tiles) > 0:
+        unique_months = generate_months(night_0, max_years)
+
+        print("Unique months", len(unique_months))
+
+        tiles_per_month = [np.sum(tbl["MONTH"] == m) for m in unique_months]
+        cum_tiles_per_month = np.cumsum(tiles_per_month)
+
+        if not args.bydate:
+            month_ticks = cum_tiles_per_month
+        else:
+            month_ticks = [(datetime.strptime(n, "%Y%m") - night_0).days for n in unique_months]
+            print(month_ticks)
+
+        ax_mean.set(xticks=month_ticks, xticklabels="")
+        for i in range(1, len(month_ticks), 12):
+            ax_mean.axvline(month_ticks[i - 1], c="r")
+        ax_mean.set(xlabel="Month", xlim=(0, month_ticks[-1]))
+
+    ax_mean.legend()
+    ax_mean.grid(alpha=0.5)
+    ax_mean.set(xlabel="Num. Exposures", ylabel=ylbl, xlim=(min_x, max_x))
+
+    ax_hist.legend()
+    ax_hist.grid(alpha=0.5)
+    ax_hist.set(xlim=(-0.5, np.argmin(nobs[-1, :] > 0)), xlabel="Number of Observations")
+
+
+    print("Saving...")
+    save_name = f"mean_exp_per_tile_{args.name}.jpg" if args.name is not None else "mean_exp_per_tile.jpg"
+    fig_mean.savefig(out_dir / save_name, dpi=256, bbox_inches="tight")
+
+    save_name = f"nobs_hist_{args.name}.jpg" if args.name is not None else "nobs_hist.jpg"
+    fig_hist.savefig(out_dir / save_name, dpi=256, bbox_inches="tight")
+
+# if args.nexp_hist:
+#     assert args.nobs, "Must pass args.nobs if generating hist of number of exposures!"
 
 
 # python summary_plots.py --suffixes lae-1000-big-inputtiles-withstds lae-1000-big-inputtiles-withstds-test --goals 4 4 -o . --pertile --labels "Base" "Test" --name "lae_1000_300sqdeg" -i /pscratch/sd/d/dylang/fiberassign/processed/
