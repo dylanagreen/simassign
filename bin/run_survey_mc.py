@@ -4,6 +4,7 @@
 # from pathlib import Path
 import argparse
 from multiprocessing import Pool
+from pathlib import Path
 import time
 
 # DDSI imports
@@ -16,10 +17,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
-# parser.add_argument("-o", "--out", required=True, type=str, help="where to save the output processed file.")
-parser.add_argument("--targs", type=str, help="targets to process.")
+parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the output summary plots.")
+parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
+parser.add_argument("--targs", required=True, type=str, help="targets to process.")
 parser.add_argument("--tiles", required=True, type=str, help="master tiling file to use for simulation.")
 args = parser.parse_args()
+
+out_dir = Path(args.outdir)
 
 tiles = Table.read(args.tiles)
 keep_tiles = tiles["IN_DESI"] & (tiles["PROGRAM"] == "DARK")
@@ -36,7 +40,7 @@ fudge = 0.1
 fp_area = 8.63
 fiber_area = 0.0015
 p_one_fiber = fiber_area / fp_area
-nfibers = 4000
+nfibers = 4100
 
 def parallel_observe(center, verbose=False):
     if verbose: print(f"Dist to {center}")
@@ -69,20 +73,27 @@ def parallel_observe(center, verbose=False):
     keep_from_idcs = []
     cur_prob = nfibers * p_one_fiber
 
+    priorities = targs[keep_ra & keep_dec][keep]["PRIORITY"]
+    idcs_sort = np.argsort(priorities)[::-1]
+    # assert len(idcs_sort) == len(idcs)
+    idcs = idcs[idcs_sort]
+
     for j, i in enumerate(idcs):
         if (assigned > nfibers): break
 
-        if probs[j] > cur_prob:
+        if probs[j] < cur_prob:
             keep_from_idcs.append(i)
             cur_prob -= p_one_fiber
             assigned += 1
 
     return keep_from_idcs
 
-
 targs["NUMOBS"] = 0
 times = []
 tot_tiles = 0
+npasses = np.max(tiles["PASS"])
+nobs_arr = np.zeros((npasses + 1, npasses))
+
 for passnum in np.unique(tiles["PASS"]):
     t_start = time.time()
     tiles_pass = tiles[keep_tiles & (tiles["PASS"] == passnum)]
@@ -96,20 +107,23 @@ for passnum in np.unique(tiles["PASS"]):
         res = p.map(parallel_observe, tile_radec)
         all_idcs = np.concatenate(res)
 
-        # Functionally nothing should appear on more than one tile, but better to be safe than sorry.
-        idcs, counts = np.unique(all_idcs, return_counts = True)
+    # Functionally nothing should appear on more than one tile, but better to be safe than sorry.
+    idcs, counts = np.unique(all_idcs, return_counts = True)
+    print(f"{len(idcs)} assigned ({len(idcs) / len(tiles_pass)} average per tile)")
 
-        targs["NUMOBS"][idcs] += counts
+    targs["NUMOBS"][idcs] += counts
 
-        # Update Priorities
-        # Update everything observed to max, finished ones are handled in the next line.
-        targs["PRIORITY"][idcs] = 3550
+    # Update Priorities
+    # Update everything observed to max, finished ones are handled in the next line.
+    targs["PRIORITY"][idcs] = 3550
 
-        # update_bool = np.zeros(len(targs), dtype=bool)
-        # update_bool[idcs] = True
-        finished = targs["NUMOBS"] >= 8
+    # update_bool = np.zeros(len(targs), dtype=bool)
+    # update_bool[idcs] = True
+    finished = targs["NUMOBS"] >= 8
+    targs["PRIORITY"][finished] = 2
 
-        targs["PRIORITY"][finished] = 2
+    bincount = np.bincount(targs["NUMOBS"], minlength=npasses)
+    nobs_arr[passnum, :] = bincount
 
     t_end = time.time()
 
@@ -117,11 +131,33 @@ for passnum in np.unique(tiles["PASS"]):
     times.append(t_end - t_start)
 
 
-
 bincount = np.bincount(targs["NUMOBS"])
 print(f"Final bincount: {bincount}")
 print(f"Total tiles: {tot_tiles}")
 print(f"Average time per pass: {np.mean(times)}")
+
+mean_exp = np.sum(bincount * np.arange(len(bincount))) / np.sum(bincount)
+print(f"Mean coverage: {mean_exp}")
+
+median_at = np.sum(bincount) // 2
+median_exp = np.argmax(np.cumsum(bincount) >= median_at)
+print(np.cumsum(bincount))
+print(median_at)
+print(f"Median coverage: {median_exp}")
+
+finished = targs["NUMOBS"] >= 8
+print(f"Percent complete: {np.sum(finished) / len(finished)}")
+
+nobs_arr[0, 0] = len(targs)
+print(nobs_arr)
+done = np.sum(nobs_arr[:, 8:], axis=1)
+fraction = done / nobs_arr[0, 0]
+print(done)
+
+
+np.save(out_dir / f"nobs_{args.suffix}_mc.npy", nobs_arr)
+np.save(out_dir / f"done_{args.suffix}_mc.npy", done)
+np.save(out_dir / f"fraction_{args.suffix}_mc.npy", fraction)
 
 colors = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"] # Okabe and Ito colorbline friendly.
 fig, ax = plt.subplots(figsize=(12, 5))
@@ -129,15 +165,8 @@ fig, ax = plt.subplots(figsize=(12, 5))
 bins = np.arange(bincount.shape[-1] + 1) - 0.5
 ax.stairs(bincount, bins, ec=colors[0])
 
-mean_exp = np.sum(bincount * np.arange(len(bincount))) / np.sum(bincount)
-print(f"Mean coverage: {mean_exp}")
-ax.axvline(mean_exp, c=colors[0])
 
-median_at = np.sum(bincount) // 2
-median_exp = np.argmax(np.cumsum(bincount) >= median_at)
-print(np.cumsum(bincount))
-print(median_at)
-print(f"Median coverage: {median_exp}")
+ax.axvline(mean_exp, c=colors[0])
 ax.axvline(median_exp, c=colors[0], ls="dashed")
 
 ax.grid(alpha=0.5)
