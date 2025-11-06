@@ -16,15 +16,26 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save the output processed file.")
 parser.add_argument("-e", "--exposures", type=str, help="A catalog of ordered exposures.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="master tiling file to match to.")
+parser.add_argument("--fix_tileids", required=False, action="store_true", help="fix tileids if surveysim renumbered everything.")
 args = parser.parse_args()
 
 tbl = Table.read(args.exposures)
 print(len(tbl), " exposures")
+print(tbl)
 
 tiles_tbl = Table.read(args.tiles)
 
 print(tiles_tbl)
-joined = join(tbl, tiles_tbl, "TILEID")
+
+if args.fix_tileids:
+    tiles_tbl["TILEID_OLD"] = tiles_tbl["TILEID"]
+    tiles_tbl["TILEID"] = np.arange(len(tiles_tbl))
+
+joined = join(tiles_tbl, tbl, "TILEID")
+
+if args.fix_tileids:
+    joined["TILEID"] = joined["TILEID_OLD"]
+    del joined["TILEID_OLD"]
 
 times = Time(joined["MJD"], format="mjd")
 times = times.to_datetime()
@@ -42,6 +53,8 @@ joined["TIMESTAMP"] = timestamps
 joined["TIMESTAMP_YMD"] = timestamps_ymd
 joined.sort("TIMESTAMP")
 
+print(joined)
+
 # We want the unique per night, but we want the maximum SNR2FRAC per night,
 # in the case that it is observed twice that night. We want to keep the
 # max SNR2FRAC, because SNR2FRAC >=1  means its done, and we will use this
@@ -54,14 +67,23 @@ unique_per_night["TILEDONE"] = unique_per_night["SNR2FRAC"] >= 1
 print(unique_per_night)
 unique_per_night.write(args.out, overwrite=True)
 
+print(len(np.unique(tbl["TILEID"])))
 
-# python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_offset-tiles-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-offset-tiles-5000deg-30pass-superset.ecsv
+# # python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_offset-tiles-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-offset-tiles-5000deg-30pass-superset.ecsv
 
-# python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_movable-collimator-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_movable-collimator-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-movable-collimator-5000deg-30pass-superset-patched.ecsv
+# # python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_movable-collimator-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_movable-collimator-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-movable-collimator-5000deg-30pass-superset-patched.ecsv
+
+
 npass = np.max(tiles_tbl["PASS"])
-tiles_per_pass = np.bincount(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]], minlength=npass)
+print(f"max pass: {npass}")
+is_dark = tiles_tbl["PROGRAM"] == "DARK"
+tiles_per_pass = np.bincount(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark], minlength=npass)
 
-finished_per_pass = np.bincount(unique(joined, "TILEID")["PASS"], minlength=npass)
+# print(np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark]))
+
+is_dark = joined["PROGRAM"] == "DARK"
+# print(np.unique(unique(joined[is_dark], "TILEID")["PASS"]))
+finished_per_pass = np.bincount(unique(joined[is_dark], "TILEID")["PASS"], minlength=npass)
 
 # print(np.unique(joined["PASS"]), np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]]))
 frac_done = finished_per_pass / tiles_per_pass
