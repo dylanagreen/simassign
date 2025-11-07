@@ -21,6 +21,7 @@ import numpy as np
 from astropy.table import Table, vstack, unique
 import healpy as hp
 import fitsio
+import yaml
 
 # DESI imports
 from desimodel.focalplane import get_tile_radius_deg
@@ -63,7 +64,7 @@ parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to us
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
-
+parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
 
 group = parser.add_mutually_exclusive_group(required=True)
@@ -73,7 +74,13 @@ group.add_argument("--density", type=int, help="number density per square degree
 args = parser.parse_args()
 
 t_start = time.time()
-targetmask = load_target_yaml("targetmask.yaml")
+
+if args.config is not None:
+    with open(args.config) as f:
+        targetmask = yaml.safe_load(f)
+else:
+    targetmask = load_target_yaml("targetmask.yaml")
+
 log.details(f"Using {targetmask}")
 log.details(f"Running with...")
 log.details(args)
@@ -141,9 +148,9 @@ if hp_base.is_dir() and fba_base.is_dir():
 else:
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
-        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True)
+        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask)
     else:
-        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True)
+        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask)
 
 
 

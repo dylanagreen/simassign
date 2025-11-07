@@ -531,7 +531,6 @@ def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
         for j, t in enumerate(targs):
             nobs_arr[j, i] = np.sum(is_done[trunc_mtl["DESI_TARGET"] == t])
 
-            print()
             if i == 0:
                 num_each_targ[j] = np.sum(trunc_mtl["DESI_TARGET"] == t)
 

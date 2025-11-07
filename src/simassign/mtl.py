@@ -186,7 +186,7 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, as_dict=False):
+def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, as_dict=False, targetmask=None):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -230,6 +230,10 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         Whether to return the mtl_all as a dict, with healpixel number as the key
         and the value as the individual MTL corresponding tot hat healpixel,
         or to stack the entire table into one. Defaults to False (stacking as a single table).
+
+    targetmask : TODO
+        Targetmask to use for target bits and target priorities where necessary. Defaults
+        to None, which loads the default targetmask stored in the simassign pacakge.
 
     Returns
     -------
@@ -282,13 +286,13 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         keep_cols = tbl.colnames
         tbl = vstack([tbl, stds_tbl[keep_stds][keep_cols]])
 
-    # target_name = "LAE"
-    targetmask = load_target_yaml("targetmask.yaml")
+    if targetmask is None:
+        targetmask = load_target_yaml("targetmask.yaml")
 
     print(f"{len(pixlist)} HEALpix.")
     if save_dir is not None:
         base_dir = Path(save_dir)
-        if base_dir.exists(): shutil.rmtree(base_dir) # Removes an old run in the same dir.
+        if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
 
         # Run mtl to split them into healpix ledgers.
         make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
