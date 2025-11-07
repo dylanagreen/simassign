@@ -15,6 +15,8 @@ class TestMTLInits(unittest.TestCase):
         self.targetmask = load_target_yaml("targetmask.yaml")
         self.datadir = Path(os.path.dirname(__file__)) /  "data"
 
+        self.targnames = [n[0] for n in self.targetmask["desi_mask"]]
+
     def test_initialize_mtl(self):
         tbl = Table()
         # Could use random objects here but we want this to be reproducible,
@@ -144,8 +146,8 @@ class TestMTLInits(unittest.TestCase):
         # 50 of each LAE/LBG
         n_lbg = 50
         nums = {"LAE": n_obj - n_lbg, "LBG": n_lbg}
-        tbl["DESI_TARGET"] = 2**2
-        tbl["DESI_TARGET"][n_lbg:] = 2**3
+        tbl["DESI_TARGET"] = 2 ** self.targetmask["desi_mask"][self.targnames.index("LAE")][1]
+        tbl["DESI_TARGET"][n_lbg:] = 2 ** self.targetmask["desi_mask"][self.targnames.index("LBG")][1]
 
         observed_mtl = initialize_mtl(tbl)
 
@@ -163,6 +165,7 @@ class TestMTLInits(unittest.TestCase):
         for target in self.targetmask["desi_mask"]:
             true_bit = target[1]
             name = target[0]
+            if name == "QSO": continue # TODO Test only tests LAE/LBG combined.
             this_target = (observed_mtl["DESI_TARGET"] & 2**true_bit) != 0
 
             # 50 of each target in the output MTL.
