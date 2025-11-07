@@ -29,8 +29,9 @@ parser.add_argument("-o", "--out", required=True, type=str, help="where to save 
 parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
+parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 
-group = parser.add_mutually_exclusive_group(required=True)
+group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 group.add_argument("--twoex", action="store_true", help="take two exposures of a single tiling rather than two unique tilings.")
 args = parser.parse_args()
@@ -50,7 +51,10 @@ tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.4
 
 pass_tilings = []
-for i in range(1, args.npass + 1):
+if args.twoex: max_pass = (args.npass + 1) // 2
+else: max_pass = args.npass + 1
+
+for i in range(1, max_pass):
     print(f"Generating tiling for pass {i}...")
     if args.fourex: # Repeat each tiling four times before moving to the next one
          passnum = (i + 3) // 4
@@ -58,6 +62,7 @@ for i in range(1, args.npass + 1):
         passnum = (i + 1) // 2
     else:
          passnum = i
+    print("PASSNUM", passnum)
     tiles = rotate_tiling(base_tiles, passnum)
 
     # IF we're not collapsing but we are doing 4x, give each "pass" a unique
@@ -94,10 +99,42 @@ print(str(start_time))
 # datetime.timedelta(days=10)
 tiles["TIMESTAMP"] = start_time.isoformat()
 
+# Adding some addigional necessary columns
+tiles["PRIORITY"] = 1000 # Some good number... for this we want them to be all the same priority
+tiles["STATUS"] = "unobs"
+tiles["EBV_MED"] = 0.01 # TODO figure this out.
+tiles["DESIGNHA"] = 0 # TODO figure this out
+tiles["DONEFRAC"] = 0.0
+tiles["AVAILABLE"] = True
+tiles["PRIORITY_BOOSTFAC"] = 1.0
+
+if args.trim:
+    survey = None
+    if args.survey is not None:
+        survey = np.load(args.survey)
+    in_survey = check_in_survey_area(tiles, survey)
+    tiles["IN_DESI"] = False
+    tiles["IN_DESI"][in_survey] = True
+
+# Need these for survey sim
+tiles_bright = Table(tiles[tiles["IN_DESI"]][1])
+tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
+tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
+tiles_bright["PROGRAM"] = "BRIGHT"
+tiles_bright["IN_DESI"] = True
+
+tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
+tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
+tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
+tiles_backup["PROGRAM"] = "BACKUP"
+tiles_backup["IN_DESI"] = True
+
+tiles = vstack([tiles, tiles_backup, tiles_bright])
+
+# Update timestamps last so that we only update those that are IN_DESI
 timestamps = [str(start_time)] * np.sum(tiles["IN_DESI"])
 cur_time = start_time + timedelta(seconds=1000)
 n_days = 0
-
 
 n_exps = 0
 for i in range(len(timestamps)):
@@ -120,35 +157,6 @@ tiles["TIMESTAMP"][tiles["IN_DESI"]] = timestamps
 # Will use this column for breaking down observation dates without time
 ts = [datetime.fromisoformat(x).strftime("%Y%m%d") for x in tiles["TIMESTAMP"]]
 tiles["TIMESTAMP_YMD"] = ts
-
-# Adding some addigional necessary columns
-tiles["PRIORITY"] = 1000 # Some good number... for this we want them to be all the same priority
-tiles["STATUS"] = "unobs"
-tiles["EBV_MED"] = 0.01 # TODO figure this out.
-tiles["DESIGNHA"] = 0 # TODO figure this out
-tiles["DONEFRAC"] = 0.0
-tiles["AVAILABLE"] = True
-tiles["PRIORITY_BOOSTFAC"] = 1.0
-
-if args.trim:
-    in_ngc, in_sgc = check_in_survey_area(tiles)
-    tiles["IN_DESI"] = False
-    tiles["IN_DESI"][in_ngc | in_sgc] = True
-
-# Need these for survey sim
-tiles_bright = Table(tiles[tiles["IN_DESI"]][1])
-tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
-tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
-tiles_bright["PROGRAM"] = "BRIGHT"
-tiles_bright["IN_DESI"] = True
-
-tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
-tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
-tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
-tiles_backup["PROGRAM"] = "BACKUP"
-tiles_backup["IN_DESI"] = True
-
-tiles = vstack([tiles, tiles_backup, tiles_bright])
 
 print(tiles)
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))

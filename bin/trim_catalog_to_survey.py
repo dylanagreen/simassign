@@ -16,7 +16,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("catalog", type=str, help="A catalog of objects to use to trim.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save the resulting file.")
 parser.add_argument("--seed", required=False, type=int, default=91701, help="seed for the random subsampling.")
-
+parser.add_argument("--qsos", required=False, type=int, default=None, help="These are qsos and not lbgs, so select objects that would be excluded by the lbgs given by the matchdensity, and use this parameter for qso density.")
+parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument("--tiles", required=False, action="store_true", help="whether this catalog is tiles or not. If tiles, will set IN_DESI = False instead of truncating.")
@@ -40,21 +41,30 @@ target_density = np.min([density, args.matchdensity])
 print(f"Sampling to density {target_density}...")
 
 n_tot = int(args.matchdensity * sky_area)
-keep_idcs = idcs[:n_tot]
+
+if args.qsos is not None:
+    qso_density = np.min([density, args.qsos])
+    n_qso = int(qso_density * sky_area)
+    keep_idcs = idcs[n_tot:(n_tot + n_qso)]
+else:
+    keep_idcs = idcs[:n_tot]
 data_tbl = data_tbl[keep_idcs]
 
 print(f"Achieved density {len(data_tbl) / sky_area}.")
 
-in_ngc, in_sgc = check_in_survey_area(data_tbl)
+survey = None
+if args.survey is not None:
+    survey = np.load(args.survey)
+in_survey = check_in_survey_area(data_tbl, survey)
 
 print("Saving...")
 if args.tiles:
     data_tbl["IN_DESI"] = False
-    data_tbl["IN_DESI"][in_ngc | in_sgc] = True
+    data_tbl["IN_DESI"][in_survey] = True
     print(np.sum(data_tbl["IN_DESI"]))
     data_tbl.sort("TILEID")
 else:
-    data_tbl = data_tbl[in_ngc | in_sgc]
+    data_tbl = data_tbl[in_survey]
 
 print(f"{len(data_tbl)} final rows.")
 

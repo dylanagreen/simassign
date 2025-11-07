@@ -457,7 +457,7 @@ def get_nobs_arr(mtl, global_timestamps=None):
 
     return nobs_arr, at_least_n
 
-def get_targ_done_arr(mtl, global_timestamps=None):
+def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -469,6 +469,13 @@ def get_targ_done_arr(mtl, global_timestamps=None):
     mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
+
+    global_targs : :class:`~numpy.array`
+        An array of global targets to use for generating the number of done
+        targets. I.e. return the number of donet argets at each timestamp for the
+        targets in global_targs rather than the local targets in the input mtl.
+        Optional, defaults to None,
+        which uses only the targets in the input mtl.
 
     global_timestamps : :class:`~numpy.array`
         An array of global timestamps to use for generating the number of observations.
@@ -502,9 +509,12 @@ def get_targ_done_arr(mtl, global_timestamps=None):
     # So we can loop over the timestamps to get information from each
     # fiberassign run.
     is_std = mtl["TARGET_STATE"] == "CALIB"
-    good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
-    # print(f"Num not LAE or LBG: {np.sum(~(~is_std & good_targ))}")
-    targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
+    if global_targs is not None:
+        targs = global_targs
+    else:
+        good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
+        # print(f"Num not LAE or LBG: {np.sum(~(~is_std & good_targ))}")
+        targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
 
     # print(targs)
 
@@ -521,6 +531,7 @@ def get_targ_done_arr(mtl, global_timestamps=None):
         for j, t in enumerate(targs):
             nobs_arr[j, i] = np.sum(is_done[trunc_mtl["DESI_TARGET"] == t])
 
+            print()
             if i == 0:
                 num_each_targ[j] = np.sum(trunc_mtl["DESI_TARGET"] == t)
 
@@ -586,23 +597,30 @@ sgc_points = np.array([[304.844, -17.566],
                        [307.33 , -11.895],
                        [305.58 , -15.718]])
 
-def check_in_survey_area(tbl):
+def check_in_survey_area(tbl, survey=None):
+    # TODO docstring
     # Extracting the points as a 2d array
     data_ra = np.array(tbl["RA"], dtype=float)
     data_dec = np.array(tbl["DEC"], dtype=float)
     data_points = np.vstack([data_ra, data_dec]).T
 
-    print("Checking NGC...")
-    p_ngc = mpPath(ngc_points)
-    in_ngc = p_ngc.contains_points(data_points)
+    if survey is not None:
+        survey_path = mpPath(survey)
+        in_survey = survey_path.contains_points(data_points)
+    else:
+        print("Checking NGC...")
+        p_ngc = mpPath(ngc_points)
+        in_ngc = p_ngc.contains_points(data_points)
 
-    print("Checking SGC...")
-    # Need to handle the rotation of the sgc, since it's disjoint
-    # when constraining angles to 0-360
-    to_rotate = data_ra < 90
-    data_points_rotate = np.array(data_points, copy=True)
-    data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
-    p_sgc = mpPath(sgc_points)
-    in_sgc = p_sgc.contains_points(data_points_rotate)
+        print("Checking SGC...")
+        # Need to handle the rotation of the sgc, since it's disjoint
+        # when constraining angles to 0-360
+        to_rotate = data_ra < 90
+        data_points_rotate = np.array(data_points, copy=True)
+        data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
+        p_sgc = mpPath(sgc_points)
+        in_sgc = p_sgc.contains_points(data_points_rotate)
 
-    return in_ngc, in_sgc
+        in_survey = in_ngc | in_sgc
+
+    return in_survey
