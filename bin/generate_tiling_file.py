@@ -30,6 +30,7 @@ parser.add_argument("--collapse", required=False, action="store_true", help="col
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
+parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
 
 group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
@@ -157,6 +158,9 @@ tiles["TIMESTAMP"][tiles["IN_DESI"]] = timestamps
 # Will use this column for breaking down observation dates without time
 ts = [datetime.fromisoformat(x).strftime("%Y%m%d") for x in tiles["TIMESTAMP"]]
 tiles["TIMESTAMP_YMD"] = ts
+
+if args.add_tiledone:
+    tiles["TILEDONE"] = tiles["IN_DESI"]
 
 print(tiles)
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
