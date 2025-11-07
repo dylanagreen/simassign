@@ -13,6 +13,7 @@ from desimodel.focalplane import get_tile_radius_deg
 # Non-DESI Imports
 from astropy.table import Table
 import numpy as np
+import yaml
 
 import matplotlib.pyplot as plt
 
@@ -21,15 +22,35 @@ parser.add_argument("-o", "--outdir", required=True, type=str, help="where to sa
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
 parser.add_argument("--targs", required=True, type=str, help="targets to process.")
 parser.add_argument("--tiles", required=True, type=str, help="master tiling file to use for simulation.")
+parser.add_argument("--config", required=True, type=str, help="configuration yaml file with run parameters.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
+
+with open(args.config) as f:
+    targetmask = yaml.safe_load(f)
+print(f"Using targetmask {targetmask}")
 
 tiles = Table.read(args.tiles)
 keep_tiles = tiles["IN_DESI"] & (tiles["PROGRAM"] == "DARK")
 
 targs = Table.read(args.targs)
+
+targettypes = [row[2] for row in targetmask["desi_mask"]]
+if "DESI_TARGET" not in targs.colnames:
+    print("DESI_TARGET not found in input catalog, assuming all targets are LBGs")
+    lbg_index = targettypes.index("LBG")
+    targs["DESI_TARGET"] = 2 ** targetmask["desi_mask"][lbg_index][1]
+
+
 targs["PRIORITY"] = 3500
+for target in targetmask["desi_mask"]:
+    bit = 2**target[1]
+    name = target[0]
+
+    this_target = (targs["DESI_TARGET"] & bit) != 0
+    targs["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+
 # It's easier to manipulate this in array form, and the order of the table
 # is never going to change.
 targ_radec = np.vstack([targs["RA"], targs["DEC"]]).T
@@ -61,10 +82,6 @@ def parallel_observe(center, verbose=False):
 
     idcs = idcs[keep] # Indices of everything in this tile.
 
-    # passnum = tileid // 10000
-    # in_tile = targs[f"PASS_{passnum}"] == tileid
-    # idcs = np.arange(len(targs))[in_tile] # Indices of targets that are possible to observe in this tile.
-
     rng = np.random.default_rng()
     probs = rng.uniform(size=len(idcs))
 
@@ -92,7 +109,7 @@ targs["NUMOBS"] = 0
 times = []
 tot_tiles = 0
 npasses = np.max(tiles["PASS"])
-nobs_arr = np.zeros((npasses + 1, npasses))
+nobs_arr = np.zeros((len(targettypes), npasses + 1, npasses))
 
 for passnum in np.unique(tiles["PASS"]):
     t_start = time.time()
@@ -115,27 +132,34 @@ for passnum in np.unique(tiles["PASS"]):
 
     # Update Priorities
     # Update everything observed to max, finished ones are handled in the next line.
-    targs["PRIORITY"][idcs] = 3550
+    for i, target in enumerate(targetmask["desi_mask"]):
+        bit = 2**target[1]
+        name = target[0]
 
-    # update_bool = np.zeros(len(targs), dtype=bool)
-    # update_bool[idcs] = True
-    finished = targs["NUMOBS"] >= 8
-    targs["PRIORITY"][finished] = 2
+        this_target = (targs["DESI_TARGET"] & bit) != 0
+        this_target_update = this_target[idcs]
+        print(f"Updating {np.sum(this_target)} {name}")
+        targs["PRIORITY"][idcs[this_target_update]] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
 
-    bincount = np.bincount(targs["NUMOBS"], minlength=npasses)
-    nobs_arr[passnum, :] = bincount
+        # If it exceeds the target then it's done. Done is always 2.
+        # TODO maybe we change the done priority such that if all targets are done
+        # we prefer one over another? Thye'd require changing this.
+        finished = targs["NUMOBS"][idcs] >= targetmask["numobs"]["desi_mask"][name]
+        targs["PRIORITY"][idcs[finished & this_target_update]] = targetmask["priorities"]["desi_mask"][name]["DONE"]
+
+        bincount = np.bincount(targs["NUMOBS"][this_target], minlength=npasses)
+        nobs_arr[i, passnum, :] = bincount
 
     t_end = time.time()
 
     print(f"Pass {passnum} finished in {t_end - t_start} seconds...")
     times.append(t_end - t_start)
 
-
-bincount = np.bincount(targs["NUMOBS"])
-print(f"Final bincount: {bincount}")
+print(nobs_arr)
 print(f"Total tiles: {tot_tiles}")
 print(f"Average time per pass: {np.mean(times)}")
 
+bincount = np.bincount(targs["NUMOBS"], minlength=npasses)
 mean_exp = np.sum(bincount * np.arange(len(bincount))) / np.sum(bincount)
 print(f"Mean coverage: {mean_exp}")
 
@@ -145,15 +169,24 @@ print(np.cumsum(bincount))
 print(median_at)
 print(f"Median coverage: {median_exp}")
 
-finished = targs["NUMOBS"] >= 8
-print(f"Percent complete: {np.sum(finished) / len(finished)}")
+done = np.zeros(nobs_arr.shape[:-1])
+for i, target in enumerate(targetmask["desi_mask"]):
+    bit = 2**target[1]
+    name = target[0]
 
-nobs_arr[0, 0] = len(targs)
-print(nobs_arr)
-done = np.sum(nobs_arr[:, 8:], axis=1)
-fraction = done / nobs_arr[0, 0]
+    this_target = (targs["DESI_TARGET"] & bit) != 0
+    obs_targ = targetmask["numobs"]["desi_mask"][name]
+    finished = targs["NUMOBS"][this_target] >= obs_targ
+    print(f"Percent {name} complete: {np.sum(finished) / len(finished)}")
+
+    nobs_arr[i, 0, 0] = np.sum(this_target)
+
+    done[i, :] = np.sum(nobs_arr[i, :, obs_targ:], axis=1)
+
+# done = np.sum(nobs_arr[:, :, 8:], axis=2)
+fraction = done / nobs_arr[:, 0, 0][:, None]
 print(done)
-
+print(fraction)
 
 np.save(out_dir / f"nobs_{args.suffix}_mc.npy", nobs_arr)
 np.save(out_dir / f"done_{args.suffix}_mc.npy", done)
