@@ -60,6 +60,13 @@ timestamps = np.concatenate(timestamps)
 timestamps = np.unique(timestamps)#[:15]
 nobs = len(timestamps)
 
+targs = [np.unique(mtl["DESI_TARGET"]) for mtl in mtl_all.values()]
+targs = np.concatenate(targs)
+targs = np.unique(targs)
+targs = targs[targs < 2 ** 10] # Not gonna use anything more than bit 10 for this.
+
+print(f"Found targs {targs}")
+
 print(f"Calculating values...")
 # Each row is a pass, each column is number of objects with that many exposures
 print("Generating num obs per update arr....")
@@ -72,7 +79,7 @@ def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
 
 def get_done_mp(mtl):
-     return get_targ_done_arr(mtl, timestamps)
+     return get_targ_done_arr(mtl, targs, timestamps)
 
 if args.nobs:
     with Pool(args.nproc) as p:
@@ -112,6 +119,9 @@ else:
         n_tot += r[1]
 
     fraction = done / n_tot[:, None] # Should hopefully broadcast correctly.
+
+    print(f"Done shape: {done.shape}")
+    print(done)
 
     print("Writing done arrs...")
     np.save(out_dir / f"done_{args.suffix}.npy", done)
