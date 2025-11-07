@@ -314,6 +314,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
                 print(f"Init Target {target} {np.sum(this_target)}")
 
                 # Update to custom target type.
+                temp_tbl["TARGET_STATE"] = temp_tbl["TARGET_STATE"].astype("<U15") # So we don't truncate status.
                 temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
                 temp_tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
                 temp_tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
