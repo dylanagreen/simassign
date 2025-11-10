@@ -596,20 +596,24 @@ sgc_points = np.array([[304.844, -17.566],
                        [307.33 , -11.895],
                        [305.58 , -15.718]])
 
-def check_in_survey_area(tbl, survey=None):
+def check_in_survey_area(tbl, survey=None, full_tile=False):
     # TODO docstring
     # Extracting the points as a 2d array
     data_ra = np.array(tbl["RA"], dtype=float)
     data_dec = np.array(tbl["DEC"], dtype=float)
     data_points = np.vstack([data_ra, data_dec]).T
 
+    radius = get_tile_radius_deg() * 2 if full_tile else 0
+
     if survey is not None:
         survey_path = mpPath(survey)
-        in_survey = survey_path.contains_points(data_points)
+        in_survey = survey_path.contains_points(data_points, radius=radius)
     else:
+        # Radius has to be negative here due to the clockwise/counterclockwise
+        # Directionality.
         print("Checking NGC...")
         p_ngc = mpPath(ngc_points)
-        in_ngc = p_ngc.contains_points(data_points)
+        in_ngc = p_ngc.contains_points(data_points, radius=-radius)
 
         print("Checking SGC...")
         # Need to handle the rotation of the sgc, since it's disjoint
@@ -618,7 +622,7 @@ def check_in_survey_area(tbl, survey=None):
         data_points_rotate = np.array(data_points, copy=True)
         data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
         p_sgc = mpPath(sgc_points)
-        in_sgc = p_sgc.contains_points(data_points_rotate)
+        in_sgc = p_sgc.contains_points(data_points_rotate, radius=-radius)
 
         in_survey = in_ngc | in_sgc
 

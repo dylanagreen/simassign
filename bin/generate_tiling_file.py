@@ -31,6 +31,7 @@ parser.add_argument("--trim", required=False, action="store_true", help="trim ti
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
+parser.add_argument("--fulltile", required=False, action="store_true", help="when trimming, keep only tiles if the entire tile is inside the survey area, not just the tile center.")
 
 group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
@@ -113,7 +114,7 @@ if args.trim:
     survey = None
     if args.survey is not None:
         survey = np.load(args.survey)
-    in_survey = check_in_survey_area(tiles, survey)
+    in_survey = check_in_survey_area(tiles, survey, full_tile=args.fulltile)
     tiles["IN_DESI"] = False
     tiles["IN_DESI"][in_survey] = True
 
