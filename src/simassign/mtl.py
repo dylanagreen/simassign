@@ -289,6 +289,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     if targetmask is None:
         targetmask = load_target_yaml("targetmask.yaml")
 
+    targnames = [n[0] for n in targetmask["desi_mask"]]
     print(f"{len(pixlist)} HEALpix.")
     if save_dir is not None:
         base_dir = Path(save_dir)
@@ -322,6 +323,9 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
                 temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
                 temp_tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
                 temp_tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
+
+                # Everything is dark time.
+                temp_tbl["OBSCONDITIONS"][this_target] = 1 # targetmask["desi_mask"][targnames.index(name)][-1]["obsconditions"]
 
                 temp_tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
                 temp_tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
