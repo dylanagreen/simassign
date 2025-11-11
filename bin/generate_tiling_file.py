@@ -24,7 +24,6 @@ parser.add_argument("--ramax", required=False, type=float, help="maximum RA angl
 parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
 parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
 parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
-parser.add_argument("--npass", required=False, type=int, default=1, help="number of assignment passes to do.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
@@ -36,6 +35,10 @@ parser.add_argument("--fulltile", required=False, action="store_true", help="whe
 group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 group.add_argument("--twoex", action="store_true", help="take two exposures of a single tiling rather than two unique tilings.")
+
+group_pass = parser.add_mutually_exclusive_group(required=True)
+group_pass.add_argument("--npass", type=int, help="number of assignment passes to do.")
+group_pass.add_argument("--ntiles", type=int, help="target number of tiles to achieve, using as many passes as possible to get there.")
 args = parser.parse_args()
 
 # Load the geometry superset to get the tiling of the entire sky.
@@ -54,8 +57,13 @@ margin = tile_rad - 0.4
 
 pass_tilings = []
 if args.twoex: max_pass = (args.npass + 1) // 2
-else: max_pass = args.npass + 1
+else:
+    if args.npass:
+        max_pass = args.npass + 1
+    else:
+        max_pass = 1000 # Something big to encompass all tiles necessary.
 
+cur_tiles = 0
 for i in range(1, max_pass):
     print(f"Generating tiling for pass {i}...")
     if args.fourex: # Repeat each tiling four times before moving to the next one
@@ -84,7 +92,22 @@ for i in range(1, max_pass):
         not_in_zone = ~(tiles_in_ra & tiles_in_dec)
         tiles["IN_DESI"][not_in_zone] = False
 
-    pass_tilings.append(tiles)
+    if args.trim:
+        survey = None
+        if args.survey is not None:
+            survey = np.load(args.survey)
+        in_survey = check_in_survey_area(tiles, survey, full_tile=args.fulltile)
+        tiles["IN_DESI"] = False
+        tiles["IN_DESI"][in_survey] = True
+
+    cur_tiles += np.sum(tiles["IN_DESI"])
+
+    # IF we're still below our requested target number of tiles, add this pass.
+    # We do this by pass because we don't want to do any incomplete passes.
+    if args.ntiles and (cur_tiles > args.ntiles):
+        break
+    else:
+        pass_tilings.append(tiles)
 
 tiles = vstack(pass_tilings)
 if args.collapse:
@@ -110,28 +133,25 @@ tiles["DONEFRAC"] = 0.0
 tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
 
-if args.trim:
-    survey = None
-    if args.survey is not None:
-        survey = np.load(args.survey)
-    in_survey = check_in_survey_area(tiles, survey, full_tile=args.fulltile)
-    tiles["IN_DESI"] = False
-    tiles["IN_DESI"][in_survey] = True
-
 # Need these for survey sim
-tiles_bright = Table(tiles[tiles["IN_DESI"]][1])
-tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
-tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
-tiles_bright["PROGRAM"] = "BRIGHT"
-tiles_bright["IN_DESI"] = True
+# tiles_bright = Table(tiles[~tiles["IN_DESI"]][1])
+# tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
+# tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
+# tiles_bright["PROGRAM"] = "BRIGHT"
+# tiles_bright["IN_DESI"] = True
 
-tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
-tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
-tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
-tiles_backup["PROGRAM"] = "BACKUP"
-tiles_backup["IN_DESI"] = True
+# tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
+# tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
+# tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
+# tiles_backup["PROGRAM"] = "BACKUP"
+# tiles_backup["IN_DESI"] = True
 
-tiles = vstack([tiles, tiles_backup, tiles_bright])
+# tiles = vstack([tiles, tiles_backup, tiles_bright])
+
+tiles["IN_DESI"][-2:] = True
+tiles["PROGRAM"] = tiles["PROGRAM"].astype("<U15")
+tiles["PROGRAM"][-2] = "BRIGHT"
+tiles["PROGRAM"][-1] = "BACKUP"
 
 # Update timestamps last so that we only update those that are IN_DESI
 timestamps = [str(start_time)] * np.sum(tiles["IN_DESI"])
