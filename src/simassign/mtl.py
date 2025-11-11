@@ -113,11 +113,14 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
             # lazily assume that the target class is correct and we want more zgood.
             # Do this before is_complete so that is_complete overrides in the
             # case of 1 requested exposure.
-            mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
-            mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U15") # So we don't truncate status.
+            if "MORE_OBS1" in targetmask["priorities"]["desi_mask"][name].keys():
+                pass
+            else:
+                mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
+                mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U15") # So we don't truncate status.
 
-            # TODO status from the target yaml instead of hard coded.
-            mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
+                # TODO status from the target yaml instead of hard coded.
+                mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
 
             # Set priority for done targets.
             mtl_updates["PRIORITY"][this_target & is_complete] = targetmask["priorities"]["desi_mask"][name]["DONE"]
@@ -279,11 +282,15 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
     hpx = hp.ang2pix(nside, theta, phi, nest=True)
     pixlist = np.unique(hpx)
 
+    using_qso_target = "QSO_TARGET" in tbl.colnames
     if stds_tbl is not None:
         theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
         hpx = hp.ang2pix(nside, theta, phi, nest=True)
         keep_stds = np.isin(hpx, pixlist)
         keep_cols = tbl.colnames
+
+        if using_qso_target:
+            stds_tbl["QSO_TARGET"] = 0
         tbl = vstack([tbl, stds_tbl[keep_stds][keep_cols]])
 
     if targetmask is None:
@@ -296,7 +303,8 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
 
         # Run mtl to split them into healpix ledgers.
-        make_ledger_in_hp(tbl, str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
+        # Can you believe this mutates the input?
+        make_ledger_in_hp(Table(tbl, copy=True), str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
         hp_base = base_dir / "hp" / "main" / "dark"
 
         if as_dict:
@@ -304,6 +312,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
         else:
             mtl_all = Table()
 
+        # TODO parallelize this,
         for mtl_loc in hp_base.glob("*.ecsv"):
             print(f"Loading {mtl_loc.name}")
             temp_tbl = Table.read(mtl_loc)
@@ -321,8 +330,22 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
                 # Update to custom target type.
                 temp_tbl["TARGET_STATE"] = temp_tbl["TARGET_STATE"].astype("<U15") # So we don't truncate status.
                 temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
+
                 temp_tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
                 temp_tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
+
+                # Adjusting num obs for high z qsos.
+                if using_qso_target:
+                    # Propogate the QSO mask as necessary
+                    qso_mask = tbl["QSO_TARGET"][np.isin(tbl["TARGETID"], temp_tbl["TARGETID"])]
+                    temp_tbl["QSO_TARGET"] = qso_mask
+                    if name == "QSO":
+                        for qso_bit in range(len(targetmask["qso_mask"])):
+                            this_qso = temp_tbl["QSO_TARGET"] = 2 ** qso_bit
+                            mult = targetmask["qso_mask"][qso_bit][-1]["numobs_mult"]
+                            print(f"qso_bit {qso_bit}, mult {mult}")
+                            temp_tbl["NUMOBS_INIT"][this_qso] *= mult
+                            temp_tbl["NUMOBS_MORE"][this_qso] *= mult
 
                 # Everything is dark time.
                 temp_tbl["OBSCONDITIONS"][this_target] = 1 # targetmask["desi_mask"][targnames.index(name)][-1]["obsconditions"]

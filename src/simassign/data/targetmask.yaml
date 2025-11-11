@@ -1,7 +1,7 @@
 desi_mask:
     - [LAE,         2, "LAE",                    {obsconditions: DARK}]
     - [LBG,         1, "LBG",                    {obsconditions: DARK}]
-    - [QSO,         4, "QSO",                    {obsconditions: DARK}]
+    - [QSO,         3, "QSO",                    {obsconditions: DARK}]
 
 priorities:
     desi_mask:
@@ -14,4 +14,9 @@ numobs:
     desi_mask:
         LAE: 2
         LBG: 8
-        QSO: 4
+        QSO: 2
+
+#- qso bits
+qso_mask:
+    - [BASE,             0, "Regular QSO",      {obsconditions: DARK, numobs_mult: 1}]
+    - [QSO_HIZ,          1, "HIGHZ QSO",        {obsconditions: DARK, numobs_mult: 2}]
