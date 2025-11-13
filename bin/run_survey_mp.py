@@ -178,8 +178,8 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
               "--overwrite",
               "--targets",
               targ_loc,
-            #   "--fba_use_fabs",
-            #   "1",
+              "--fba_use_fabs",
+              "1",
     ]
 
     fba_file = base_dir / "fba" / f"fba-{str(tileid).zfill(6)}.fits"
@@ -245,7 +245,13 @@ with Pool(args.nproc) as p:
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
         log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
         # TODO send night as TIMESTAMP_YMD instead of i to save by night date instead of an arbitrary int.
-        targ_files, tile_files = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
+        targ_files, tile_files, ntargs_on_tile = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
+
+        ntargs_on_tile = np.asarray(ntargs_on_tile)
+        targ_files, tile_files = np.asarray(targ_files), np.asarray(tile_files)
+        good_tile = np.where(ntargs_on_tile > 0)
+
+        print("good tile:", good_tile, ntargs_on_tile)
 
         # Worthwhile to keep this for summary plot purposes
         tile_loc = base_dir / f"tiles-{timestamp}.fits"
@@ -254,7 +260,7 @@ with Pool(args.nproc) as p:
         # Step 2: actually run the fiber assignment, and get back the assigned targetids
         t_start_assign = time.time()
 
-        fiberassign_params = zip(targ_files, tile_files, tiles_subset["TIMESTAMP"], tiles_subset["TILEID"], tiles_subset["TILEDONE"])
+        fiberassign_params = zip(targ_files[good_tile], tile_files[good_tile], tiles_subset["TIMESTAMP"][good_tile], tiles_subset["TILEID"][good_tile], tiles_subset["TILEDONE"][good_tile])
         assigned_tids = p.starmap(fiberassign_tile, fiberassign_params)
         assigned_tids = np.concatenate(assigned_tids)
 
