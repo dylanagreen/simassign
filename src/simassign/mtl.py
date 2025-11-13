@@ -341,9 +341,9 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True, 
                     temp_tbl["QSO_TARGET"] = qso_mask
                     if name == "QSO":
                         for qso_bit in range(len(targetmask["qso_mask"])):
-                            this_qso = temp_tbl["QSO_TARGET"] = 2 ** qso_bit
+                            this_qso = temp_tbl["QSO_TARGET"] == 2 ** qso_bit
                             mult = targetmask["qso_mask"][qso_bit][-1]["numobs_mult"]
-                            print(f"qso_bit {qso_bit}, mult {mult}")
+                            print(f"qso_bit {qso_bit}, mult {mult}, {np.sum(this_qso)}")
                             temp_tbl["NUMOBS_INIT"][this_qso] *= mult
                             temp_tbl["NUMOBS_MORE"][this_qso] *= mult
 
