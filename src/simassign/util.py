@@ -1,6 +1,4 @@
 # stdlib imports
-from datetime import datetime
-from multiprocessing import Pool
 from pathlib import Path
 
 # DESI imports
@@ -375,6 +373,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     targ_files = []
     tile_files = []
+    ntargs_on_tile = []
     for tile in tiles:
         tileid = tile["TILEID"]
         if trunc:
@@ -383,7 +382,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
             tile_targs = targs
 
         target_filename = save_loc / f"targets-{tileid}.fits"
-        if verbose: print(f"Writing to {target_filename}")
+        if verbose: print(f"Writing {len(tile_targs)} to {target_filename}")
         tile_targs.write(target_filename, overwrite=True)
         targ_files.append(str(target_filename))
 
@@ -393,7 +392,9 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
         tile_tbl.write(tile_filename, overwrite=True)
         tile_files.append(str(tile_filename))
 
-    return targ_files, tile_files
+        ntargs_on_tile.append(len(tile_targs))
+
+    return targ_files, tile_files, ntargs_on_tile
 
 def get_nobs_arr(mtl, global_timestamps=None):
     """
@@ -596,24 +597,22 @@ sgc_points = np.array([[304.844, -17.566],
                        [307.33 , -11.895],
                        [305.58 , -15.718]])
 
-def check_in_survey_area(tbl, survey=None, full_tile=False):
+def check_in_survey_area(tbl, survey=None, trim_rad=0):
     # TODO docstring
     # Extracting the points as a 2d array
     data_ra = np.array(tbl["RA"], dtype=float)
     data_dec = np.array(tbl["DEC"], dtype=float)
     data_points = np.vstack([data_ra, data_dec]).T
 
-    radius = get_tile_radius_deg() * 2 if full_tile else 0
-
     if survey is not None:
         survey_path = mpPath(survey)
-        in_survey = survey_path.contains_points(data_points, radius=radius)
+        in_survey = survey_path.contains_points(data_points, radius=trim_rad)
     else:
         # Radius has to be negative here due to the clockwise/counterclockwise
         # Directionality.
         print("Checking NGC...")
         p_ngc = mpPath(ngc_points)
-        in_ngc = p_ngc.contains_points(data_points, radius=-radius)
+        in_ngc = p_ngc.contains_points(data_points, radius=-trim_rad)
 
         print("Checking SGC...")
         # Need to handle the rotation of the sgc, since it's disjoint
@@ -622,7 +621,7 @@ def check_in_survey_area(tbl, survey=None, full_tile=False):
         data_points_rotate = np.array(data_points, copy=True)
         data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
         p_sgc = mpPath(sgc_points)
-        in_sgc = p_sgc.contains_points(data_points_rotate, radius=-radius)
+        in_sgc = p_sgc.contains_points(data_points_rotate, radius=-trim_rad)
 
         in_survey = in_ngc | in_sgc
 
