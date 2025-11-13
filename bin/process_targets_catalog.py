@@ -17,6 +17,7 @@ parser.add_argument("-o", "--out", required=True, type=str, help="where to save 
 parser.add_argument("--laes", type=str, help="A catalog of laes to use for fiber assignment.")
 parser.add_argument("--lbgs", type=str, help="A catalog of lbgs to use for fiber assignment.")
 parser.add_argument("--qsos", type=str, help="A catalog of qsos to use for fiber assignment.")
+parser.add_argument("--qso_mask", action="store_true", help="include the QSO_TARGET column")
 parser.add_argument("--seed", required=False, type=int, default=91701, help="seed to use for randomness and reproducibility.")
 args = parser.parse_args()
 
@@ -48,15 +49,17 @@ if args.qsos is not None:
     print(f"Setting QSO DESI_TARGET to {qso_bit}")
     qsos["DESI_TARGET"] = 2 ** qso_bit
 
-    qsos["QSO_TARGET"] = 1
-    idcs = np.arange(len(qsos))
-    rng = np.random.default_rng(args.seed)
-    choice = rng.choice(idcs, replace=False, size=(len(idcs) // 2))
-    qsos["QSO_TARGET"][choice] = 2 ** 1
-    print(f"Num QSOs: {len(qsos)}")
+    if args.qso_mask:
+        qsos["QSO_TARGET"] = 1
+        idcs = np.arange(len(qsos))
+        rng = np.random.default_rng(args.seed)
+        choice = rng.choice(idcs, replace=False, size=(len(idcs) // 2))
+        qsos["QSO_TARGET"][choice] = 2 ** 1
 
-    laes["QSO_TARGET"] = 0
-    lbgs["QSO_TARGET"] = 0
+        laes["QSO_TARGET"] = 0
+        lbgs["QSO_TARGET"] = 0
+
+    print(f"Num QSOs: {len(qsos)}")
 
     tbl = vstack([laes, lbgs, qsos])
 
