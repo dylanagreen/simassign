@@ -30,7 +30,10 @@ parser.add_argument("--trim", required=False, action="store_true", help="trim ti
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
-parser.add_argument("--fulltile", required=False, action="store_true", help="when trimming, keep only tiles if the entire tile is inside the survey area, not just the tile center.")
+
+group_trim = parser.add_mutually_exclusive_group(required=False)
+group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
+group_trim.add_argument("--trim_scale", type=float, help="trim by this multiplier of the radius.")
 
 group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
@@ -40,6 +43,12 @@ group_pass = parser.add_mutually_exclusive_group(required=True)
 group_pass.add_argument("--npass", type=int, help="number of assignment passes to do.")
 group_pass.add_argument("--ntiles", type=int, help="target number of tiles to achieve, using as many passes as possible to get there.")
 args = parser.parse_args()
+
+trim_rad = 0
+if args.trim_rad:
+    trim_rad = args.trim_rad
+elif args.trim_scale:
+    trim_rad = args.trim_scale * get_tile_radius_deg()
 
 # Load the geometry superset to get the tiling of the entire sky.
 tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
@@ -96,7 +105,7 @@ for i in range(1, max_pass):
         survey = None
         if args.survey is not None:
             survey = np.load(args.survey)
-        in_survey = check_in_survey_area(tiles, survey, full_tile=args.fulltile)
+        in_survey = check_in_survey_area(tiles, survey, trim_rad=trim_rad)
         tiles["IN_DESI"] = False
         tiles["IN_DESI"][in_survey] = True
 
