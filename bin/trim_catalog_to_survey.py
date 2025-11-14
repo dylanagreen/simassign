@@ -6,7 +6,6 @@ from pathlib import Path
 
 from astropy.table import Table
 import numpy as np
-from matplotlib.patches import Path as mpPath
 
 # TODO take in a survey area instead of harcoded.
 # simassign imports
@@ -18,7 +17,7 @@ parser.add_argument("-o", "--out", required=True, type=str, help="where to save 
 parser.add_argument("--seed", required=False, type=int, default=91701, help="seed for the random subsampling.")
 parser.add_argument("--qsos", required=False, type=int, default=None, help="These are qsos and not lbgs, so select objects that would be excluded by the lbgs given by the matchdensity, and use this parameter for qso density.")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
-
+parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalog if not a tiles catalog, default: 1.")
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument("--tiles", required=False, action="store_true", help="whether this catalog is tiles or not. If tiles, will set IN_DESI = False instead of truncating.")
 group.add_argument("--matchdensity", required=False, type=int, default=1000, help="output density to match in n_targ per sq deg.")
@@ -45,7 +44,7 @@ n_tot = int(args.matchdensity * sky_area)
 if args.qsos is not None:
     qso_density = np.min([density, args.qsos])
     n_qso = int(qso_density * sky_area)
-    keep_idcs = idcs[n_tot:(n_tot + n_qso)]
+    keep_idcs = idcs[-n_qso:] # Take from the end so that we can later change our mind on how many lbgs we want to use.
 else:
     keep_idcs = idcs[:n_tot]
 data_tbl = data_tbl[keep_idcs]
@@ -65,6 +64,7 @@ if args.tiles:
     data_tbl.sort("TILEID")
 else:
     data_tbl = data_tbl[in_survey]
+    data_tbl["DESI_TARGET"] = 2 ** args.desitarget
 
 print(f"{len(data_tbl)} final rows.")
 

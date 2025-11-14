@@ -25,6 +25,6 @@ for night_details in base_dir.glob("night*"):
     print(f"Purging {night_details.name}")
     shutil.rmtree(night_details) # Purge the night details, i.e. target and tile files.
 
-for tiles in base_dir.glob("tiles*"):
+for tiles in base_dir.glob("tiles*fits"):
     print(f"Purging {tiles.name}")
     tiles.unlink() # Purge the night details, i.e. target and tile files.

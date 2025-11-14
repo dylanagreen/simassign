@@ -458,7 +458,7 @@ def get_nobs_arr(mtl, global_timestamps=None):
 
     return nobs_arr, at_least_n
 
-def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
+def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -471,12 +471,16 @@ def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
 
+    split_subtype : bool
+        Whether or not to split targets by their subtype. Defaults to False.
+
     global_targs : :class:`~numpy.array`
         An array of global targets to use for generating the number of done
-        targets. I.e. return the number of donet argets at each timestamp for the
+        targets. I.e. return the number of done targets at each timestamp for the
         targets in global_targs rather than the local targets in the input mtl.
-        Optional, defaults to None,
-        which uses only the targets in the input mtl.
+        Optional, defaults to None, which uses only the targets in the input mtl.
+        If passed and split_subtype=True, global targs must be an array of strings
+        of form "{target_bit}|{subtarget_bit}".
 
     global_timestamps : :class:`~numpy.array`
         An array of global timestamps to use for generating the number of observations.
@@ -486,17 +490,7 @@ def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
 
     Returns
     -------
-    :class:`~numpy.array`
-        Array storing the number of targets with the number of observations
-        given by the 1st axis, at the update number given by the position
-        in the 0th axis. For example, the position obs_arr[6, 3] indicates
-        how many targets have *exactly* 3 exposures after 6 MTL updates.
-
-    :class:`~numpy.array`
-        Array storing the number of targets with *at least* the number of
-        observations given by the 1st axis. For example, the position
-        at_least_arr[6, 3] indicates
-        how many targets have 3 *or more* exposures after 6 MTL updates.
+    TODO fix the return types.
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
@@ -512,10 +506,25 @@ def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
     is_std = mtl["TARGET_STATE"] == "CALIB"
     if global_targs is not None:
         targs = global_targs
+
     else:
         good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
-        # print(f"Num not LAE or LBG: {np.sum(~(~is_std & good_targ))}")
-        targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
+
+        if not split_subtype:
+            targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
+        else:
+            targ_bits = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
+            # Get everythign this target, take the first one, split on the pipe, first half is the name
+            targ_names = [(mtl["TARGET_STATE"] == t)[0].split("|")[0] for t in targ_bits]
+            targs = []
+            for i, t in enumerate(targ_bits):
+                if f"{targ_names[i]}_TARGET" in mtl.colnames:
+                    subtargs = np.unique(mtl[f"{targ_names[i]}_TARGET"])
+                    for s in subtargs:
+                        targs.append(f"{t}|{s}")
+                else:
+                    targs.append(str(t))
+
 
     # print(targs)
 
@@ -530,10 +539,26 @@ def get_targ_done_arr(mtl, global_targs=None, global_timestamps=None):
         trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
         is_done = trunc_mtl["NUMOBS_MORE"] == 0
         for j, t in enumerate(targs):
-            nobs_arr[j, i] = np.sum(is_done[trunc_mtl["DESI_TARGET"] == t])
+            if not split_subtype:
+                this_targ = trunc_mtl["DESI_TARGET"] == t
+            else:
+                targ_bit = int(t.split("|")[0])
+                this_targ = trunc_mtl["DESI_TARGET"] == targ_bit
+
+                # Don't even bother checking for the subbit because we
+                # have nothing of this parent target if the sum is zero.
+                # TODO throw a nice error if the TARGET column doesn't exist
+                # for that target type.
+                if (np.sum(this_targ) > 0) and (len(t.split("|")) > 1):
+                    sub_bit = int(t.split("|")[1])
+                    name = trunc_mtl["TARGET_STATE"][this_targ][0]
+                    name = name.split("|")[0]
+                    this_targ = this_targ & (trunc_mtl[f"{name}_TARGET"] == sub_bit)
+
+            nobs_arr[j, i] = np.sum(is_done[this_targ])
 
             if i == 0:
-                num_each_targ[j] = np.sum(trunc_mtl["DESI_TARGET"] == t)
+                num_each_targ[j] = np.sum(this_targ)
 
     return nobs_arr, num_each_targ
 
@@ -626,3 +651,65 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
         in_survey = in_ngc | in_sgc
 
     return in_survey
+
+def generate_stripe_tiles( delta=get_tile_radius_deg() * np.sqrt(2)):
+    # TODO docstring
+
+    # Generate the right ascension centers along the equator
+    ra_centers_dec0 = np.arange(0, 360, delta)
+    centers_radec = list(zip(ra_centers_dec0, np.zeros_like(ra_centers_dec0)))
+
+    # Will use a numpy rec array to store this, so we can denote column
+    # and row numbers. We will use those to offset tiles from each other slightly
+    # sot that the tile gaps don't line up in stripes.
+    centers = np.array(centers_radec, dtype=[("RA", "<f8"), ("DEC", "<f8")])
+    centers = centers.view(np.recarray)
+    centers = np.lib.recfunctions.append_fields(centers, "ROW", np.zeros_like(ra_centers_dec0))
+    centers = np.lib.recfunctions.append_fields(centers, "COL", np.arange(len(ra_centers_dec0)))
+
+    dec_deltas = np.arange(0, 90, delta)
+    dec_deltas = dec_deltas[1:]
+
+    # Generate all of the individual rows in the stripe tiling, iterating
+    # by how much the declination changes at each row.
+    rows = [centers]
+    for i, d in enumerate(dec_deltas):
+        new_centers = np.array(centers, copy=True)
+        new_centers["DEC"] += d
+        new_centers["ROW"] = i + 1
+        rows.append(new_centers)
+
+        new_centers = np.array(centers, copy=True)
+        new_centers["DEC"] -= d
+        new_centers["ROW"] = -(i + 1)
+        rows.append(new_centers)
+
+    final_centers = np.hstack(rows)
+
+    # Dithering rows and columns relative to each other to avoid lining up
+    # the tileg aps.
+    dither_rows = (final_centers["ROW"] % 2) == 0
+    final_centers["RA"][dither_rows] += 0.05
+
+    dither_cols = (final_centers["COL"] % 2) == 0
+    final_centers["DEC"][dither_cols] += 0.05
+
+    return final_centers
+
+def shift_stripes(num_shifts, tile_centers):
+    # TODO docstring
+    max_shift = np.sqrt(2)
+    # Start and end are the max shift, which are the same base tiling, due to
+    # symmetry. We will discard the end, but keep the beginning so that this
+    # function returns all shifts from 0 up to num_shifts
+    shifts = get_tile_radius_deg() * np.linspace(0, max_shift, num_shifts + 2)
+    shifts = shifts[:-1]
+
+    out_centers = []
+    for s in shifts:
+        cur_centers = np.array(tile_centers, copy=True)
+        cur_centers["RA"] += s
+        cur_centers["DEC"] += s
+        out_centers.append(cur_centers)
+
+    return out_centers

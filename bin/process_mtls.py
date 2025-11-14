@@ -25,9 +25,11 @@ parser.add_argument("--nproc", required=False, type=int, default=1, help="number
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated files.")
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
 parser.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
+parser.add_argument("--split_subtype", required=False, action="store_true", help="split subtypes of targets into their own arrays. e.g. if there are multiple types of LBGs, do not aggregate their results as one LBG class.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
+out_dir.mkdir(exist_ok=True)
 
 def get_num_tiles(top_dir):
     n_tiles = [0]
@@ -65,6 +67,34 @@ targs = np.concatenate(targs)
 targs = np.unique(targs)
 targs = targs[targs < 2 ** 10] # Not gonna use anything more than bit 10 for this.
 
+if args.split_subtype:
+    all_targs = []
+    targs_complete = []
+    for mtl in mtl_all.values():
+        for t in targs:
+            # Already got all sub targs.
+            if t in targs_complete:
+                continue
+            this_targ = mtl["DESI_TARGET"] == t
+            # Name should be the same for all target states so just take the first and split that
+            name = mtl['TARGET_STATE'][this_targ][0].split("|")[0]
+
+            if np.sum(this_targ) == 0:
+                continue
+
+            if f"{name}_TARGET" in mtl.colnames:
+                sub_bits = np.unique(mtl[f"{name}_TARGET"][this_targ])
+                for s in sub_bits:
+                    all_targs.append(f"{t}|{s}")
+            else:
+                all_targs.append(str(t))
+            targs_complete.append(t) # We actually got something...
+
+        if len(targs_complete) == len(targs): break
+
+    targs = all_targs
+
+
 print(f"Found targs {targs}")
 
 print(f"Calculating values...")
@@ -79,7 +109,7 @@ def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
 
 def get_done_mp(mtl):
-     return get_targ_done_arr(mtl, targs, timestamps)
+     return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps)
 
 if args.nobs:
     with Pool(args.nproc) as p:
@@ -106,7 +136,7 @@ if args.nobs:
     print("Writing nobs arrs...")
     np.save(out_dir / f"nobs_{args.suffix}.npy", nobs)
     np.save(out_dir / f"at_least_{args.suffix}.npy", at_least)
-    np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
+    np.save(out_dir / f"fraction_full_{args.suffix}.npy", fraction)
 else:
     with Pool(args.nproc) as p:
         res = p.map(get_done_mp, list(mtl_all.values()))
@@ -122,6 +152,8 @@ else:
 
     print(f"Done shape: {done.shape}")
     print(done)
+
+    print(f"Max achieved: {targs} : {fraction[:, -1]}")
 
     print("Writing done arrs...")
     np.save(out_dir / f"done_{args.suffix}.npy", done)

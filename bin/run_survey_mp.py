@@ -148,11 +148,9 @@ if hp_base.is_dir() and fba_base.is_dir():
 else:
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
-        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask)
+        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
     else:
-        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask)
-
-
+        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.

@@ -13,10 +13,16 @@ priorities:
 numobs:
     desi_mask:
         LAE: 2
-        LBG: 8
-        QSO: 2
+        LBG: 2
+        QSO: 6
 
 #- qso bits
 qso_mask:
     - [BASE,             0, "Regular QSO",      {obsconditions: DARK, numobs_mult: 1}]
     - [QSO_HIZ,          1, "HIGHZ QSO",        {obsconditions: DARK, numobs_mult: 2}]
+
+lbg_mask:
+    - [LBG234,             0, "23.4 mag cut",      {obsconditions: DARK, numobs_mult: 1, frac: 90/850}]
+    - [LBG238,             1, "23.8 mag cut",      {obsconditions: DARK, numobs_mult: 2, frac: 220/850}]
+    - [LBG240,             2, "24.0 mag cut",      {obsconditions: DARK, numobs_mult: 3, frac: 220/850}]
+    - [LBG242,             3, "24.2 mag cut",      {obsconditions: DARK, numobs_mult: 4, frac: 320/850}]
