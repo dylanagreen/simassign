@@ -1,15 +1,8 @@
 #!/usr/bin/env python
 
 # Run simulated fiberassign over either a simulated or given catalog.
-# python run_survey_mp.py --ramin 200 --ramax 210 --decmin 20 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-withstandards/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --fourex
-
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1200-big-nproc-32/ --npass 50 --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1200.fits --nproc 32  --fourex
-
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-30pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
-
-# python run_survey_mp.py --ramin 190 --ramax 210 --decmin 15 --decmax 30 -o /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds-test/ --catalog /pscratch/sd/d/dylang/fiberassign/lya-colore-lae-1000.fits --nproc 32  --tiles /pscratch/sd/d/dylang/fiberassign/tiles-2pass-superset.ecsv --stds /pscratch/sd/d/dylang/fiberassign/dark_stds_catalog.fits
-
 # TODO proper docstring
+
 import argparse
 from datetime import datetime, timedelta
 from multiprocessing import Pool
@@ -66,12 +59,17 @@ parser.add_argument("--nproc", required=False, type=int, default=1, help="number
 parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
+parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
+parser.add_argument("--b_start_date", type=str, help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
 
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignment.")
 group.add_argument("--density", type=int, help="number density per square degree of randomly generated targets.")
 
 args = parser.parse_args()
+
+if args.catalog_b or args.b_start_date:
+    assert args.catalog_b and args.b_start_date, "If providing --catalog_b or a --b_start_date, you must provide both!"
 
 t_start = time.time()
 
@@ -90,7 +88,6 @@ if args.danger:
     log.details("Running in danger mode. This means:")
     log.details("1. Will not save MTLs every night, only every year of the survey which has implications for checkpointing.")
     log.details("=" * 9)
-
 
 # Generate the random targets
 rng = np.random.default_rng(91701)
@@ -146,6 +143,16 @@ if hp_base.is_dir() and fba_base.is_dir():
     loaded_from_checkpoint = True
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
 else:
+    if args.catalog_b:
+        # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
+        # stadards would be duplicated if we did. In the case of catalog b, initialize_mtl
+        # will wipe the mtl_b from disk before creating the main mtl, so this will
+        # exist entirely in memory until it's needed. But we create it first using this function
+        # To make sure all priorities etc. are set correctly. Creating it later would
+        # overwrite all the history int he MTL.
+        tbl_b = load_catalog(args.catalog_b)
+        mtl_all_b = initialize_mtl(tbl_b, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id = len(tbl))
+
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
         mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
@@ -216,8 +223,19 @@ t2 = time.time()
 with Pool(args.nproc) as p:
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
         if loaded_from_checkpoint and timestamp <= last_timestamp:
-            print(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
+            log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
             continue
+        if args.b_start_date:
+            log.details(f"Adding catalog_b on {timestamp}")
+            if timestamp == args.b_start_date:
+                hpx_join = mtl_all.keys()
+                concat_params = [(mtl_all[hp], mtl_all_b[hp]) for hp in hpx_join]
+                res = p.starmap(concatenate_mtls, concat_params)
+
+                for i, hp in enumerate(hpx_join):
+                    mtl_all[hp] = res[i]
+
+                del mtl_all_b # Free up some memory, now that those targets are in the main mtl.
 
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]

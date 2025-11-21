@@ -247,12 +247,14 @@ def _load_and_update(mtl_loc, targetmask, tbl):
         temp_tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
         temp_tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
 
+    # TODO make this a parameter so the MTL can accurately reflect when
+    # MTL_B targets were added.
     temp_tbl["TIMESTAMP"] = "2024-12-30T00:00:00+00:00" # Want the init timemstamp to be earlier than the survey (20250101)
     temp_tbl.write(mtl_loc, overwrite=True) # Keep the original file extension.
     return hpx, temp_tbl
 
 def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
-                   as_dict=False, targetmask=None, nproc=1):
+                   as_dict=False, targetmask=None, nproc=1, start_id=0):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -306,6 +308,11 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         This function necessitates loading the MTLS created by desitarget, using
         nproc > 1 allows these to be loaded and updated in parallel.
 
+    start_id : int
+        Starting index of targets, for encoding unique targetids if we plan to
+        join MTLs later in the survey. This ensures targets have unique targetis
+        on join. Defaults to zero.
+
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table` or dict
@@ -317,7 +324,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
     # For targetids we will use the indices, they just need to be unique and non negative
     tbl = base_tbl.copy() # Don't want to mutate input
-    idcs = np.arange(len(tbl))
+    idcs = np.arange(len(tbl)) + start_id
     obj_bits = 2**22
     objid = idcs % obj_bits
     brickid = idcs // obj_bits
@@ -420,6 +427,14 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         mtl_all["HEALPIX"] = hpx
         mtl_all.sort("TARGETID")
 
+    # I suppose you could initialize without a save dir and then not return
+    # it so it just gets lost to the ether but why would you do that?
     if return_mtl_all:
         return mtl_all
     return
+
+def concatenate_mtls(mtl_a, mtl_b):
+    # TODO docstring
+    joined = vstack([mtl_a, mtl_b])
+    joined.sort(["TARGETID", "TIMESTAMP"])
+    return joined
