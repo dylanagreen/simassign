@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-# python generate_tiling_file.py --npass 30 -o /pscratch/sd/d/dylang/fiberassign/ --fourex --collapse
-
 import argparse
 from datetime import datetime, timedelta
 
@@ -31,6 +29,7 @@ parser.add_argument("--starttime", required=False, type=str, default="2025-09-16
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
 parser.add_argument("--stripes", required=False, action="store_true", help="use stripe tiling instead of DESI-I-like symmetrical tiling.")
+parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -102,7 +101,7 @@ if args.stripes:
     all_stripes = shift_stripes(max_pass, base_tiles)
 
 cur_tiles = 0
-for i in range(1, max_pass):
+for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
     print(f"Generating tiling for pass {i}...")
     if args.stripes:
         tiles = add_tile_cols(all_stripes[i - 1])
@@ -177,20 +176,6 @@ tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
 
 # Need these for survey sim
-# tiles_bright = Table(tiles[~tiles["IN_DESI"]][1])
-# tiles_bright["PROGRAM"] = tiles_bright["PROGRAM"].astype("<U15")
-# tiles_bright["TILEID"] = np.max(tiles["TILEID"]) + 1
-# tiles_bright["PROGRAM"] = "BRIGHT"
-# tiles_bright["IN_DESI"] = True
-
-# tiles_backup = Table(tiles[tiles["IN_DESI"]][-1])
-# tiles_backup["PROGRAM"] = tiles_backup["PROGRAM"].astype("<U15")
-# tiles_backup["TILEID"] = np.max(tiles["TILEID"]) + 2
-# tiles_backup["PROGRAM"] = "BACKUP"
-# tiles_backup["IN_DESI"] = True
-
-# tiles = vstack([tiles, tiles_backup, tiles_bright])
-
 tiles["IN_DESI"][-2:] = True
 tiles["PROGRAM"] = tiles["PROGRAM"].astype("<U15")
 tiles["PROGRAM"][-2] = "BRIGHT"
