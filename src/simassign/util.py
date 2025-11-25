@@ -490,7 +490,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
 
     Returns
     -------
-    TODO fix the return types.
+    TODO write the return types.
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
@@ -500,13 +500,12 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         unique_timestamps = np.unique(timestamps)
     # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
 
-    # Timestamps correspond with when the MTL was created/updated
-    # So we can loop over the timestamps to get information from each
-    # fiberassign run.
+    # This handles determining the unique targets in the file, especually
+    # if we want to split them by subtype or not. It also excludes things
+    # like standards.
     is_std = mtl["TARGET_STATE"] == "CALIB"
     if global_targs is not None:
         targs = global_targs
-
     else:
         good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
 
@@ -514,7 +513,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
             targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
         else:
             targ_bits = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
-            # Get everythign this target, take the first one, split on the pipe, first half is the name
+            # Get everything that is this target, take the first one, split on the pipe, first half is the name
             targ_names = [(mtl["TARGET_STATE"] == t)[0].split("|")[0] for t in targ_bits]
             targs = []
             for i, t in enumerate(targ_bits):
@@ -525,16 +524,26 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                 else:
                     targs.append(str(t))
 
-
-    # print(targs)
-
+    # Timestamps correspond with when the MTL was created/updated
+    # So we can loop over the timestamps to get information from each
+    # fiberassign run.
     nobs = len(unique_timestamps)
     ntargs = len(targs)
     nobs_arr = np.zeros((ntargs, nobs))
     num_each_targ = np.zeros(ntargs)
-    for i, time in enumerate(unique_timestamps):
+
+    # For speed we can iterate only over timestamps in this file, and
+    # flood fill the value up to the next unique timestamp that is in this file
+    # since the results won't change between those timestamps. I.e. if the
+    # global timestamps are A, B ,C, and only A and C are in this file,
+    # then there is no MLT update at timestamp B. So uniquifying  on timestamp
+    # B will provide the same result as uniquifying on timestamp A.
+    ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
+    these_timestamps = unique_timestamps[ts_in_this_mtl]
+    # print(f"{len(these_timestamps)} timestamps out of {len(unique_timestamps)} in this MTL.")
+    for i, time in enumerate(these_timestamps):
+        ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
-        # print(sum(keep_rows))
 
         trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
         is_done = trunc_mtl["NUMOBS_MORE"] == 0
@@ -547,7 +556,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
 
                 # Don't even bother checking for the subbit because we
                 # have nothing of this parent target if the sum is zero.
-                # TODO throw a nice error if the TARGET column doesn't exist
+                # TODO throw a nice error if the {targ}_TARGET column doesn't exist
                 # for that target type.
                 if (np.sum(this_targ) > 0) and (len(t.split("|")) > 1):
                     sub_bit = int(t.split("|")[1])
@@ -555,8 +564,12 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                     name = name.split("|")[0]
                     this_targ = this_targ & (trunc_mtl[f"{name}_TARGET"] == sub_bit)
 
-            nobs_arr[j, i] = np.sum(is_done[this_targ])
+            # Should broadcast correctly. Flood fill all above this time to
+            # the results for this timestamp. At next higher timestamp
+            # everything above will be overwritten.
+            nobs_arr[j, ts_idx:] = np.sum(is_done[this_targ])
 
+            # This mostly used to determine fractional completeness.
             if i == 0:
                 num_each_targ[j] = np.sum(this_targ)
 
