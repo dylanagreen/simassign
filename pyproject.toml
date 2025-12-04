@@ -12,3 +12,10 @@ dependencies = ["numpy",
                 "healpy",
                 "astropy"]
 readme = "README.md"
+
+# Coverage is for some reason including things like desimodel/util...
+[tool.coverage.run]
+source = ["."]
+
+[tool.coverage.report]
+omit = ["src/simassign/tests/*"]
