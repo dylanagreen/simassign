@@ -42,14 +42,18 @@ if "DESI_TARGET" not in targs.colnames:
     lbg_index = targettypes.index("LBG")
     targs["DESI_TARGET"] = 2 ** targetmask["desi_mask"][lbg_index][1]
 
-
+# Some additional params we need for this simulation.
 targs["PRIORITY"] = 3500
+fiberfrac = {}
+global_rng = np.random.default_rng(91701)
+
 for target in targetmask["desi_mask"]:
     bit = 2**target[1]
     name = target[0]
 
     this_target = (targs["DESI_TARGET"] & bit) != 0
     targs["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+    fiberfrac[bit] = targetmask["fiberfrac"]["desi_mask"][name]
 
 # It's easier to manipulate this in array form, and the order of the table
 # is never going to change.
@@ -75,8 +79,9 @@ def parallel_observe(center, verbose=False):
     # Get the euclidean distance to the center, then keep everything that's
     # within the radius. We return the indices of targets kept because we want
     # to update those indices in the glboal array.
-    dist = np.linalg.norm(diff[keep_ra & keep_dec], axis=1)
-    idcs = np.arange(len(targ_radec))[keep_ra & keep_dec]
+    can_assign = keep_ra & keep_dec
+    dist = np.linalg.norm(diff[can_assign], axis=1)
+    idcs = np.arange(len(targ_radec))[can_assign]
     keep = dist <= tile_rad
     if verbose: print(f"{dist.shape[0]} targets kept for distance, {np.sum(keep)} in tile radius")
 
@@ -90,18 +95,28 @@ def parallel_observe(center, verbose=False):
     keep_from_idcs = []
     cur_prob = nfibers * p_one_fiber
 
-    priorities = targs[keep_ra & keep_dec][keep]["PRIORITY"]
+    priorities = targs[can_assign][keep]["PRIORITY"]
+    targ_types = targs[can_assign][keep]["DESI_TARGET"]
+
+    # This ensures that the correct number of fibers go to each target type.
+    # I.e. Assign only up to 80% of the fibers to LBGs then force moving on
+    # to LAEs or vice versa.
+    fibers_left_per_type = {k: fiberfrac[k] * nfibers for k in np.unique(targ_types)}
+
     idcs_sort = np.argsort(priorities)[::-1]
-    # assert len(idcs_sort) == len(idcs)
     idcs = idcs[idcs_sort]
+    targ_types = targ_types[idcs_sort]
 
     for j, i in enumerate(idcs):
         if (assigned > nfibers): break
 
-        if probs[j] < cur_prob:
+        targ = targ_types[j] # Target type for this fictious object.
+        if (probs[j] < cur_prob) and (fibers_left_per_type[targ] > 0):
             keep_from_idcs.append(i)
             cur_prob -= p_one_fiber
             assigned += 1
+
+            fibers_left_per_type[targ] -= 1
 
     return keep_from_idcs
 
