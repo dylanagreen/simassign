@@ -7,7 +7,6 @@
 import numpy as np
 
 # Rotations for first through 15th passes of the sky of the DESI tiling
-
 rots = np.array([[0, 0],
                  [2.56349, 1.70645],
                  [5.30251, 0.46050],

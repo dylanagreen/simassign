@@ -458,7 +458,7 @@ def get_nobs_arr(mtl, global_timestamps=None):
 
     return nobs_arr, at_least_n
 
-def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None):
+def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -487,6 +487,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         I.e. return the number of observations at each timestamp in global_timestamps
         rather than at each timestamp in the input mtl. Optional, defaults to None,
         which uses the timestamps in the input mtl.
+
+    delta_stats : bool
+        Whether we should collate statistics on what changed in each MTL update.
+        There is a performance consequence to this. Defaults to False.
 
     Returns
     -------
@@ -541,6 +545,9 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
     these_timestamps = unique_timestamps[ts_in_this_mtl]
     # print(f"{len(these_timestamps)} timestamps out of {len(unique_timestamps)} in this MTL.")
+    if delta_stats:
+        targets_obs = np.zeros(nobs)
+        targets_obs_but_done = np.zeros(nobs)
     for i, time in enumerate(these_timestamps):
         ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
@@ -573,6 +580,16 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
             if i == 0:
                 num_each_targ[j] = np.sum(this_targ)
 
+            # At the zeroth timestamp everything was added so it'll
+            # all be considered "observed" and we don't want that.
+            if delta_stats and ts_idx != 0:
+                updated_this_ts = trunc_mtl["TIMESTAMP"] == time
+                targ_overobserved = trunc_mtl["NUMOBS"] > trunc_mtl["NUMOBS_INIT"]
+                targets_obs[ts_idx] += np.sum(updated_this_ts & this_targ)
+                targets_obs_but_done[ts_idx] += np.sum(updated_this_ts & this_targ & targ_overobserved)
+
+    if delta_stats:
+        return nobs_arr, num_each_targ, targets_obs, targets_obs_but_done
     return nobs_arr, num_each_targ
 
 # Points defining the hulls surrounding the survey area.
