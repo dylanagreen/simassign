@@ -23,9 +23,7 @@ from fiberassign.scripts.assign import parse_assign, run_assign_full, run_assign
 # stdlib imports
 from pathlib import Path
 
-# TODO remove this at some point to point to a generic simassign import.
-import sys
-sys.path.append("/pscratch/sd/d/dylang/repos/simassign/src/")
+# simassign imports
 from simassign.mtl import *
 from simassign.util import generate_random_objects, rotate_tiling
 from simassign.io import load_catalog

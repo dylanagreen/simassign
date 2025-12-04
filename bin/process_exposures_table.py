@@ -69,10 +69,6 @@ unique_per_night.write(args.out, overwrite=True)
 
 print(len(np.unique(tbl["TILEID"])))
 
-# # python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_offset-tiles-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_offset-tiles-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-offset-tiles-5000deg-30pass-superset.ecsv
-
-# # python process_exposures_table.py -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_processedv2_movable-collimator-5000deg-30pass.fits -t /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/exposures_movable-collimator-500deg-30pass.fits --catalog /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-desi2-lae-movable-collimator-5000deg-30pass-superset-patched.ecsv
-
 
 npass = np.max(tiles_tbl["PASS"])
 print(f"max pass: {npass}")
