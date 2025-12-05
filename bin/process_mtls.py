@@ -20,14 +20,14 @@ from simassign.io import *
 from simassign.util import get_nobs_arr, get_targ_done_arr
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--mtls", required=True, type=str, help="base directory of mtls to process")
+parser.add_argument("input", type=str, help="base directory of run to process")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated files.")
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
 parser.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
 parser.add_argument("--split_subtype", required=False, action="store_true", help="split subtypes of targets into their own arrays. e.g. if there are multiple types of LBGs, do not aggregate their results as one LBG class.")
 parser.add_argument("--delta_stats", required=False, action="store_true", help="collate the so-called \"delta stats\", i.e. statistics on targets that get observed each timestamp.")
-
+parser.add_argument("--account_for_avail", required=False, action="store_true", help="generate statistics that account for the fact not every target has enough available positioners to even achieve its goal")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
@@ -47,21 +47,48 @@ def tiles_from_file(fname):
      with fitsio.FITS(fname) as h:
             return len(h[1][:])
 
-top_dir = Path(args.mtls)
+def process_fba_for_counts(fba_all):
+    all_tids = np.unique(np.concatenate([np.unique(v["TARGETID"]) for v in fba_all.values()]))
+    all_counts = np.zeros_like(all_tids)
+    print("All tids done")
+
+    for k, v in fba_all.items():
+        these_tids, counts = np.unique(v["TARGETID"], return_counts=True)
+
+        # Since both all_tids and these_tids are both sorted, if all_tids are
+        # in these_tids, they correspond with the correct value. e.g. the first
+        # "TRUE" in all_tids must correspnd with the first tid in these_tids,
+        all_counts[np.isin(all_tids, these_tids)] += counts
+
+    tid_data = {"TARGETID": all_tids, "POSSIBLE": all_counts}
+    return Table(tid_data)
+
+top_dir = Path(args.input)
 mtl_loc =  top_dir / "hp" / "main" / "dark"
+fba_loc = top_dir / "fba"
+
+if args.account_for_avail:
+    t_start = time.time()
+    fba_all = load_fba_all(fba_loc, hdu="FAVAIL", nproc=args.nproc)
+    t_end = time.time()
+    print(f"Loading fba files took {t_end - t_start} seconds...")
+
+    # TODO processing is very slow.
+    t_start = time.time()
+    tid_counts = process_fba_for_counts(fba_all)
+    t_end = time.time()
+    print(f"Processing fba files took {t_end - t_start} seconds...")
 
 # Load all the mtls for each of the input mtl bases
 t_start = time.time()
 print(f"Loading {mtl_loc}...")
 mtl_all = load_mtl_all(mtl_loc, as_dict=True, nproc=args.nproc)
-
-# mtl = vstack(mtl_tbls)
 t_end = time.time()
-print(f"Loading took {t_end - t_start} seconds...")
+print(f"Loading mtl took {t_end - t_start} seconds...")
 
 timestamps = [np.array(mtl["TIMESTAMP"], dtype=str) for mtl in mtl_all.values()]
 timestamps = np.concatenate(timestamps)
-timestamps = np.unique(timestamps)#[:15]
+timestamps = np.unique(timestamps)
 nobs = len(timestamps)
 
 targs = [np.unique(mtl["DESI_TARGET"]) for mtl in mtl_all.values()]
@@ -69,6 +96,7 @@ targs = np.concatenate(targs)
 targs = np.unique(targs)
 targs = targs[targs < 2 ** 10] # Not gonna use anything more than bit 10 for this.
 
+# Geenerate the list of all targets to find results for, when splitting on subtype
 if args.split_subtype:
     all_targs = []
     targs_complete = []
@@ -108,10 +136,15 @@ print("Num mtls:", len(list(mtl_all.values())))
 print("Num obs:", nobs)
 
 def get_nobs_mp(mtl):
-     return get_nobs_arr(mtl, timestamps)
+    return get_nobs_arr(mtl, timestamps)
 
 def get_done_mp(mtl):
-     return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps, args.delta_stats)
+    if args.account_for_avail:
+        return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
+                                 delta_stats=args.delta_stats, tid_counts=tid_counts)
+    else:
+        return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
+                                 delta_stats=args.delta_stats)
 
 if args.nobs:
     with Pool(args.nproc) as p:
@@ -160,6 +193,7 @@ else:
     print(done)
 
     print(f"Max achieved: {targs} : {fraction[:, -1]}")
+    print(f"Num Targs: {targs} : {n_tot}")
 
     print("Writing done arrs...")
     np.save(out_dir / f"done_{args.suffix}.npy", done)

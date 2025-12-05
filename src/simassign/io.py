@@ -63,10 +63,6 @@ def load_mtl_all(mtl_dir, as_dict=False, nproc=1, deduplicate_on_load=False):
     This function iterates over the healpix subdirectories stored in mtl_dir
     and loads all MTL files stored there.
 
-    NOTE: Assumes some defaults, namely that
-    the MTLs are stored in top_dir / hp / main / dark and that all MTLs
-    are stored as ecsv files.
-
     Parameters
     ----------
     mtl_dir : :class:`~pathlib.Path`
@@ -103,9 +99,7 @@ def load_mtl_all(mtl_dir, as_dict=False, nproc=1, deduplicate_on_load=False):
 
     # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
     pixlist = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
-
     args = [(l, deduplicate_on_load) for l in locs]
-
     with Pool(nproc) as p:
         tbls = p.starmap(load_mtl, args)
 
@@ -121,3 +115,27 @@ def load_mtl_all(mtl_dir, as_dict=False, nproc=1, deduplicate_on_load=False):
         mtl_all.sort("TARGETID")
 
     return mtl_all
+
+def load_fba(fba_loc, hdu="FAVAIL"):
+    # TODO docstring
+    print(f"Loading HDU {hdu} in {fba_loc}...")
+    return Table.read(fba_loc, hdu=hdu)
+
+
+def load_fba_all(fba_dir, hdu="FAVAIL", nproc=1):
+    # TODO docstring
+    locs = list(fba_dir.glob("fba*.fits"))
+
+    assert len(locs) > 0, "No fba files found as either ecsv or fits!"
+
+    tiles = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
+    args = [(l, hdu) for l in locs]
+    with Pool(nproc) as p:
+        tbls = p.starmap(load_fba, args)
+
+    fba_all = {}
+    for i, temp_tbl in enumerate(tbls):
+        tileid = tiles[i]
+        fba_all[int(tileid)] = temp_tbl
+
+    return fba_all

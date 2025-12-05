@@ -3,10 +3,10 @@ from pathlib import Path
 
 # DESI imports
 from desimodel.focalplane import get_tile_radius_deg
-from desitarget.targetmask import desi_mask, obsconditions
+from desitarget.targetmask import  obsconditions
 
 # Non-DESI outside imports
-from astropy.table import Table
+from astropy.table import Table, unique
 from matplotlib.patches import Path as mpPath
 import numpy as np
 
@@ -458,7 +458,8 @@ def get_nobs_arr(mtl, global_timestamps=None):
 
     return nobs_arr, at_least_n
 
-def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False):
+def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
+                      tid_counts=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -492,6 +493,12 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         Whether we should collate statistics on what changed in each MTL update.
         There is a performance consequence to this. Defaults to False.
 
+    tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table with columns "TARGETID" and "POSSIBLE".
+         If provided, do not process any TARGETIDs whose POSSIBLE assignments
+          are less than NUMOBS_INIT (the goal number of observations). Defaults to None,
+          which means process all targets.
+
     Returns
     -------
     TODO write the return types.
@@ -502,7 +509,23 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         unique_timestamps = np.unique(global_timestamps)
     else:
         unique_timestamps = np.unique(timestamps)
-    # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
+
+    if tid_counts is not None:
+        tids_goals = mtl["TARGETID", "NUMOBS_INIT"]
+        tids_goals = unique(tids_goals, keys="TARGETID") # Don't care to deduplicate, NUMOBS_INIT should never change
+        # Some objects are never even able to be observed and aren't in tid_counts at all
+        # This ensures that we only match on tids that are actually observable *at all*
+        tids_goals = tids_goals[np.isin(tids_goals["TARGETID"], tid_counts["TARGETID"])]
+        tids_in_mtl = np.isin(tid_counts["TARGETID"], tids_goals["TARGETID"])
+        avail = tid_counts["POSSIBLE"][tids_in_mtl]
+
+        # Since both tids_avail and tids_goals are sorted these are one to one
+        can_get = avail >= tids_goals["NUMOBS_INIT"]
+        keep_tids = tids_goals["TARGETID"][can_get]
+        do_process = np.isin(mtl["TARGETID"], keep_tids)
+    else:
+        do_process = np.ones(len(mtl), dtype=bool)
+
 
     # This handles determining the unique targets in the file, especually
     # if we want to split them by subtype or not. It also excludes things
@@ -539,8 +562,8 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # For speed we can iterate only over timestamps in this file, and
     # flood fill the value up to the next unique timestamp that is in this file
     # since the results won't change between those timestamps. I.e. if the
-    # global timestamps are A, B ,C, and only A and C are in this file,
-    # then there is no MLT update at timestamp B. So uniquifying  on timestamp
+    # global timestamps are A, B, C, and only A and C are in this file,
+    # then there is no MLT update at timestamp B. So uniquifying on timestamp
     # B will provide the same result as uniquifying on timestamp A.
     ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
     these_timestamps = unique_timestamps[ts_in_this_mtl]
@@ -552,7 +575,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
 
-        trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
+        trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std) & do_process])
         is_done = trunc_mtl["NUMOBS_MORE"] == 0
         for j, t in enumerate(targs):
             if not split_subtype:
