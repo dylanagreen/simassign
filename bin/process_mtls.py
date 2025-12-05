@@ -26,6 +26,8 @@ parser.add_argument("-o", "--outdir", required=True, type=str, help="where to sa
 parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
 parser.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
 parser.add_argument("--split_subtype", required=False, action="store_true", help="split subtypes of targets into their own arrays. e.g. if there are multiple types of LBGs, do not aggregate their results as one LBG class.")
+parser.add_argument("--delta_stats", required=False, action="store_true", help="collate the so-called \"delta stats\", i.e. statistics on targets that get observed each timestamp.")
+
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
@@ -109,15 +111,11 @@ def get_nobs_mp(mtl):
      return get_nobs_arr(mtl, timestamps)
 
 def get_done_mp(mtl):
-     return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps)
+     return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps, args.delta_stats)
 
 if args.nobs:
     with Pool(args.nproc) as p:
         res = p.map(get_nobs_mp, list(mtl_all.values()))
-
-    # res = []
-    # for k, v in mtl_all.items():
-    #      res.append(get_nobs_mp(v))
 
     nobs = np.zeros(res[0][0].shape)
     at_least = np.zeros(res[0][1].shape)
@@ -142,11 +140,19 @@ else:
         res = p.map(get_done_mp, list(mtl_all.values()))
 
     done = np.zeros(res[0][0].shape)
-    n_tot = np.zeros(res[1][1].shape)
+    n_tot = np.zeros(res[0][1].shape)
+
+    if args.delta_stats:
+        targs_obs = np.zeros(res[0][2].shape)
+        targs_obs_over = np.zeros(res[0][3].shape)
 
     for i, r in enumerate(res):
         done += r[0]
         n_tot += r[1]
+
+        if args.delta_stats:
+            targs_obs += r[2]
+            targs_obs_over += r[3]
 
     fraction = done / n_tot[:, None] # Should hopefully broadcast correctly.
 
@@ -159,6 +165,10 @@ else:
     np.save(out_dir / f"done_{args.suffix}.npy", done)
     np.save(out_dir / f"n_tot_{args.suffix}.npy", n_tot)
     np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
+
+    if args.delta_stats:
+        np.save(out_dir / f"targs_obs_{args.suffix}.npy", targs_obs)
+        np.save(out_dir / f"targs_obs_over_{args.suffix}.npy", targs_obs_over)
 
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
