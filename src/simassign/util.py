@@ -3,10 +3,12 @@ from pathlib import Path
 
 # DESI imports
 from desimodel.focalplane import get_tile_radius_deg
+from desimodel.footprint import tiles2pix
 from desitarget.targetmask import  obsconditions
 
 # Non-DESI outside imports
 from astropy.table import Table, unique
+import healpy as hp
 from matplotlib.patches import Path as mpPath
 import numpy as np
 
@@ -704,6 +706,19 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
         in_survey = in_ngc | in_sgc
 
     return in_survey
+
+def check_in_tile_area(tbl, tiles, nside=256):
+    # TODO docstring
+    hpx_tiles = tiles2pix(nside, tiles["TILEID", "RA", "DEC"], fact=2**9)
+
+    ra = tbl["RA"]
+    dec = tbl["DEC"]
+
+    theta, phi = np.radians(90 - dec), np.radians(ra)
+    hpx_targs = hp.ang2pix(nside, theta, phi, nest=True)
+
+    return np.isin(hpx_targs, hpx_tiles)
+
 
 def generate_stripe_tiles( delta=get_tile_radius_deg() * np.sqrt(2)):
     # TODO docstring
