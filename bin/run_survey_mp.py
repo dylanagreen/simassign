@@ -79,7 +79,10 @@ if args.config is not None:
 else:
     targetmask = load_target_yaml("targetmask.yaml")
 
+sciencemask = target_mask_to_int(targetmask)
+
 log.details(f"Using {targetmask}")
+log.details(f"sciencemask: {sciencemask}")
 log.details(f"Running with...")
 log.details(args)
 
@@ -185,6 +188,8 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
               targ_loc,
               "--fba_use_fabs",
               "1",
+              "--sciencemask",
+              str(sciencemask)
     ]
 
     fba_file = base_dir / "fba" / f"fba-{str(tileid).zfill(6)}.fits"
@@ -252,7 +257,7 @@ with Pool(args.nproc) as p:
         hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
 
         log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
-
+        # if len(hpx_night) == 0: continue
         # Deduplicate the MTL to get only the most recent information for each target.
         # TODO run fiberassign in a way that we can skip saving target files.
         t_start_curr = time.time()

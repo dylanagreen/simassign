@@ -799,3 +799,11 @@ def shift_stripes(num_shifts, tile_centers):
         out_centers.append(cur_centers)
 
     return out_centers
+
+def target_mask_to_int(targetmask):
+    # TODO docstring
+    science_mask = 0
+    for row in targetmask["desi_mask"]:
+        science_mask += 2 ** (row[1])
+
+    return science_mask
