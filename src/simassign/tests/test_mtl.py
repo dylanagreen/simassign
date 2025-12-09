@@ -37,8 +37,8 @@ class TestMTLInits(unittest.TestCase):
         # Using sets because the order does not matter
         self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))
 
-        # TODO a better way to do this bit detecting?
-        true_bit = self.targetmask["desi_mask"][0][1]
+        true_bit = [x[1] for x in self.targetmask["desi_mask"] if x[0] == "LAE"]
+        true_bit = true_bit[0]
         np.testing.assert_array_equal(observed_mtl["DESI_TARGET"],
                                       2**true_bit * np.ones(n_obj, dtype=int))
         np.testing.assert_array_equal(observed_mtl["MWS_TARGET"],
@@ -92,8 +92,8 @@ class TestMTLInits(unittest.TestCase):
         self.assertEqual(np.sum(is_lae), n_obj)
         self.assertEqual(np.sum(~is_lae), n_std)
 
-        # Testing the LAE values.
-        true_bit = self.targetmask["desi_mask"][0][1]
+        true_bit = [x[1] for x in self.targetmask["desi_mask"] if x[0] == "LAE"]
+        true_bit = true_bit[0]
         np.testing.assert_array_equal(observed_mtl["DESI_TARGET"][is_lae],
                                       2**true_bit * np.ones(n_obj, dtype=int))
         np.testing.assert_array_equal(observed_mtl["MWS_TARGET"][is_lae],
@@ -165,7 +165,7 @@ class TestMTLInits(unittest.TestCase):
         for target in self.targetmask["desi_mask"]:
             true_bit = target[1]
             name = target[0]
-            if name == "QSO": continue # TODO Test only tests LAE/LBG combined.
+            if name not in ["LAE", "LBG"]: continue # TODO Test only tests LAE/LBG combined.
             this_target = (observed_mtl["DESI_TARGET"] & 2**true_bit) != 0
 
             # 50 of each target in the output MTL.
