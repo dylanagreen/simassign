@@ -1,7 +1,14 @@
 desi_mask:
-    - [LAE,         2, "LAE",                    {obsconditions: DARK}]
-    - [LBG,         1, "LBG",                    {obsconditions: DARK}]
-    - [QSO,         3, "QSO",                    {obsconditions: DARK}]
+    # Highz program bits
+    - [LBG,         1, "LBG",                              {obsconditions: DARK}]
+    - [LAE,         2, "LAE",                              {obsconditions: DARK}]
+    - [QSO,         3, "QSO",                              {obsconditions: DARK}]
+
+    # Bits for other targets.
+    - [ELG,         4, "dark time ELGs",                   {obsconditions: DARK}]
+    - [MWS,         5, "MWS targets",                      {obsconditions: DARK}]
+    - [HID,         6, "High density program targets",     {obsconditions: DARK}]
+    - [LENS,        7, "targets from the lensing program", {obsconditions: DARK}]
 
 priorities:
     desi_mask:
@@ -10,11 +17,23 @@ priorities:
         LBG: {UNOBS: 3500, MORE_ZGOOD: 3550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
         QSO: {UNOBS: 3500, MORE_ZGOOD: 3550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
 
-numobs:
+        # Increase priority when we have a zgood.
+        ELG:  {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        MWS:  {UNOBS: 1500, MORE_ZGOOD: 1550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        HID:  {UNOBS: 1500, MORE_ZGOOD: 1550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        LENS: {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+
+numobs: # These are in "increments of 15", i.e. 4 = 1 hour of effective time.
     desi_mask:
+        # High Z program
+        LBG: 6
         LAE: 2
-        LBG: 2
-        QSO: 6
+        QSO: 4
+
+        ELG: 1
+        MWS: 1
+        HID: 1
+        LENS: 8
 
 #- qso bits
 qso_mask:
