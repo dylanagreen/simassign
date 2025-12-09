@@ -162,6 +162,22 @@ else:
     else:
         mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
+    if args.catalog_b:
+        # Generate empty tables for healpixels that are in one catalog but not
+        # the other.
+        hp_a = list(mtl_all.keys())
+        hp_b = list(mtl_all_b.keys())
+
+        log.details("Generating dummy tables...")
+        for hp in (hp_a + hp_b):
+            if hp not in hp_b:
+                log.details(f"Added dummy table to mtl_all_b for {hp}")
+                mtl_all_b[hp] = Table(names=mtl_all[hp].colnames, dtype=mtl_all[hp].dtype)
+            elif hp not in hp_a:
+                log.details(f"Added dummy table to mtl_all for {hp}")
+                mtl_all[hp] = Table(names=mtl_all_b[hp].colnames, dtype=mtl_all_b[hp].dtype)
+
+
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
 tile_rad =  get_tile_radius_deg()
@@ -231,8 +247,8 @@ with Pool(args.nproc) as p:
             log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
             continue
         if args.b_start_date:
-            log.details(f"Adding catalog_b on {timestamp}")
             if timestamp == args.b_start_date:
+                log.details(f"Adding catalog_b on {timestamp}")
                 hpx_join = mtl_all.keys()
                 concat_params = [(mtl_all[hp], mtl_all_b[hp]) for hp in hpx_join]
                 res = p.starmap(concatenate_mtls, concat_params)
@@ -272,7 +288,7 @@ with Pool(args.nproc) as p:
         targ_files, tile_files = np.asarray(targ_files), np.asarray(tile_files)
         good_tile = np.where(ntargs_on_tile > 0)
 
-        print("good tile:", good_tile, ntargs_on_tile)
+        log.details("Good tile:", good_tile, ntargs_on_tile)
 
         # Worthwhile to keep this for summary plot purposes
         tile_loc = base_dir / f"tiles-{timestamp}.fits"
@@ -302,7 +318,6 @@ with Pool(args.nproc) as p:
 
         t_mid = time.time()
         times["get_last_time"].append(t_mid - t3)
-        # TODO parallelize
         update_params = [(mtl_all[hpx], assigned_tids, targetmask, last_time, False) for hpx in hpx_night]
         updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as hpx_night
         for i, hpx in enumerate(hpx_night):
