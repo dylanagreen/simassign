@@ -253,9 +253,17 @@ with Pool(args.nproc) as p:
                 concat_params = [(mtl_all[hp], mtl_all_b[hp]) for hp in hpx_join]
                 res = p.starmap(concatenate_mtls, concat_params)
 
-                for i, hp in enumerate(hpx_join):
-                    mtl_all[hp] = res[i]
+                for j, hp in enumerate(hpx_join):
+                    mtl_all[hp] = res[j]
 
+                log.details(f"Prev pixlist len: {len(pixlist)}")
+                # The previous pixlist was generated from the healpixels of
+                # only targets in the primary catalog. Dummy tables were added
+                # to MTL all to account for healpixels that are in catalog
+                # b but not a, but we need to update the pixlist now
+                # that we've added catalog b to include those targets.
+                pixlist = np.asarray(list(mtl_all.keys()))
+                log.details(f"Updated pixlist len: {len(pixlist)}")
                 del mtl_all_b # Free up some memory, now that those targets are in the main mtl.
 
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
