@@ -15,7 +15,7 @@ import fitsio
 import numpy as np
 
 from simassign.io import *
-from simassign.util import get_nobs_arr, get_targ_done_arr
+from simassign.util import get_targ_done_arr
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="base directory of run to process")
@@ -152,18 +152,30 @@ def get_done_mp(mtl):
                                  delta_stats=args.delta_stats)
 
 if args.nobs:
+    mtl_vals = list(mtl_all.values())
+    del mtl_all
+
+    if len(timestamps) > 1000: # We will need to split for memory purposes.
+        split_idx = len(mtl_vals) // 2
+
+        splits = [mtl_vals[:split_idx], mtl_vals[split_idx:]]
+    else:
+        splits = [mtl_vals]
+
+    nobs = np.zeros((len(targs), len(timestamps), len(timestamps)))
+    at_least = np.zeros_like(nobs)
+
     with Pool(args.nproc) as p:
-        res = p.map(get_nobs_mp, list(mtl_all.values()))
+        for mtls in splits:
+            res = p.map(get_nobs_mp, mtls)
 
-    nobs = np.zeros(res[0][0].shape)
-    at_least = np.zeros(res[0][1].shape)
+            # Res is an array of tuples (tuples the return of get_nobs) so this just
+            # unpacks all the tuples.
+            for i, r in enumerate(res):
+                nobs += r[0]
+                at_least += r[1]
 
-    # Res is an array of tuples (tuples the return of get_nobs) so this just
-    # unpacks all the tuples.
-    for i, r in enumerate(res):
-        nobs += r[0]
-        at_least += r[1]
-
+            del res
 
     # [0,0] is the "at least zero exposures at zero iterations" which should include
     # every single object at this point.
@@ -215,7 +227,6 @@ print(f"Nobs took {t_end - t_start} seconds...")
 np.save(out_dir / f"targs_{args.suffix}.npy", targs)
 
 t_start = time.time()
-del res
 
 print("Getting n_tiles...")
 with Pool(args.nproc) as p:
