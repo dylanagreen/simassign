@@ -30,6 +30,7 @@ parser.add_argument("--survey", required=False, type=str, default=None, help="us
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
 parser.add_argument("--stripes", required=False, action="store_true", help="use stripe tiling instead of DESI-I-like symmetrical tiling.")
 parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
+parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -47,11 +48,18 @@ args = parser.parse_args()
 
 def add_tile_cols(tiles):
     tile_tbl = Table(tiles)
-    tile_tbl["PROGRAM"] = "DARK"
-    tile_tbl["OBSCONDITIONS"] = 1
+    tile_tbl["PROGRAM"] = tile_tbl["PROGRAM"].astype("<U15")
+    tile_tbl["PROGRAM"] = args.obscon.upper()
+    if args.obscon.upper() == "DARK":
+        tile_tbl["OBSCONDITIONS"] = 2**0
+    elif args.obscon.upper() == "BRIGHT":
+        tile_tbl["OBSCONDITIONS"] = 2**2
+    else:
+        tile_tbl["OBSCONDITIONS"] = 2**1 # GRAY.
 
-    del tile_tbl["ROW"]
-    del tile_tbl["COL"]
+    if "ROW" in tile_tbl.colnames:
+        del tile_tbl["ROW"]
+        del tile_tbl["COL"]
     return tile_tbl
 
 trim_rad = 0
@@ -156,6 +164,7 @@ for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
         pass_tilings.append(tiles)
 
 tiles = vstack(pass_tilings)
+tiles = add_tile_cols(tiles)
 if args.collapse:
     tiles = unique(tiles, "TILEID")
     tiles.sort("TILEID")
@@ -182,7 +191,10 @@ tiles["PRIORITY_BOOSTFAC"] = 1.0
 # Need these for survey sim
 tiles["IN_DESI"][-2:] = True
 tiles["PROGRAM"] = tiles["PROGRAM"].astype("<U15")
-tiles["PROGRAM"][-2] = "BRIGHT"
+if args.obscon.upper() == "DARK":
+    tiles["PROGRAM"][-2] = "BRIGHT"
+else:
+    tiles["PROGRAM"][-2] = "DARK"
 tiles["PROGRAM"][-1] = "BACKUP"
 
 # Update timestamps last so that we only update those that are IN_DESI
