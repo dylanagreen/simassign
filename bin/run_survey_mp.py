@@ -296,7 +296,7 @@ with Pool(args.nproc) as p:
         targ_files, tile_files = np.asarray(targ_files), np.asarray(tile_files)
         good_tile = np.where(ntargs_on_tile > 0)
 
-        log.details("Good tile:", good_tile, ntargs_on_tile)
+        log.details(f"Good tile: {good_tile}, {ntargs_on_tile}")
 
         # Worthwhile to keep this for summary plot purposes
         tile_loc = base_dir / f"tiles-{timestamp}.fits"

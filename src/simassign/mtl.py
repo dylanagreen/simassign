@@ -167,7 +167,7 @@ def deduplicate_mtl(mtl):
     trunc_mtl = trunc_mtl[ii]
     return trunc_mtl
 
-# TODO move this.
+# TODO move this to io.
 def load_target_yaml(fname):
     """
     Load the targeting yaml saved as `fname`.
@@ -241,8 +241,13 @@ def _load_and_update(mtl_loc, targetmask, tbl):
                     temp_tbl["NUMOBS_INIT"][this_lbg] *= mult
                     temp_tbl["NUMOBS_MORE"][this_lbg] *= mult
 
-        # Everything is dark time.
-        temp_tbl["OBSCONDITIONS"][this_target] = 1 # targetmask["desi_mask"][targnames.index(name)][-1]["obsconditions"]
+        # Make sure the obsoncditions are set right
+        obscond = target[-1]["obsconditions"]
+        obscond = obscond.split("|")
+        temp_tbl["OBSCONDITIONS"][this_target] = 0 # Reset the values added by the desitarget mtl.
+        for oc in targetmask["obsconditions"]:
+            if oc[0] in obscond: # 0 is the name, 1 is the bit
+                temp_tbl["OBSCONDITIONS"][this_target] += (2**oc[1])
 
         temp_tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
         temp_tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]

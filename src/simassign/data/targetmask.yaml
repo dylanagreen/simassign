@@ -6,8 +6,8 @@ desi_mask:
 
     # Bits for other targets.
     - [ELG,         4, "dark time ELGs",                   {obsconditions: DARK}]
-    - [MWS,         5, "MWS targets",                      {obsconditions: DARK}]
-    - [HID,         6, "High density program targets",     {obsconditions: DARK}]
+    - [MWS,         5, "MWS targets",                      {obsconditions: DARK|BRIGHT}]
+    - [HID,         6, "High density program targets",     {obsconditions: DARK|BRIGHT}]
     - [LENS,        7, "targets from the lensing program", {obsconditions: DARK}]
 
 priorities:
@@ -45,3 +45,17 @@ lbg_mask:
     - [LBG238,             1, "23.8 mag cut",      {obsconditions: DARK, numobs_mult: 2, frac: 220/850}]
     - [LBG240,             2, "24.0 mag cut",      {obsconditions: DARK, numobs_mult: 3, frac: 220/850}]
     - [LBG242,             3, "24.2 mag cut",      {obsconditions: DARK, numobs_mult: 4, frac: 320/850}]
+
+obsconditions:
+    - [DARK,        0, "Moon is down"]
+    - [GRAY,        1, "Moon up; illum fraction<0.6 and (illum*elev)<30 deg"]
+    - [BRIGHT,      2, "Moon up and bright"]
+    - [BACKUP,      3, "Very bad seeing, high extinction, or bright cloud cover"]
+    - [TWILIGHT12,  4, "Between sunset/sunrise and 12 degree twilight"]
+    - [TWILIGHT18,  5, "Between 12 and 18 degree twilight"]
+    - [DAY,         6, "Daytime calibrations"]
+    - [CLOSED,      7, "Nighttime but dome is closed due to rain, wind, dew..."]
+    - [APOCALYPSE,  8, "Conditions are so bad that the world is ending anyway"]
+    - [IGNORE,      9, "Used to indicate that obsconditions are set by a sub-bit rather than this bit"]
+    - [DARK1B,     10, "Moon is down, DESI 1B survey"]
+    - [BRIGHT1B,   11, "Moon up and bright, DESI 1B survey"]
