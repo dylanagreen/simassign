@@ -398,7 +398,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     return targ_files, tile_files, ntargs_on_tile
 
-def get_nobs_arr(mtl, global_timestamps=None):
+def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -437,26 +437,38 @@ def get_nobs_arr(mtl, global_timestamps=None):
         unique_timestamps = np.unique(global_timestamps)
     else:
         unique_timestamps = np.unique(timestamps)
-    # ts = np.array([datetime.fromisoformat(x) for x in timestamps])
+
+    if global_targs is not None:
+        targs = global_targs
+    else:
+        good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
+
+        # if not split_subtype:
+        targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
 
     # Timestamps correspond with when the MTL was created/updated
     # So we can loop over the timestamps to get information from each
     # fiberassign run.
     is_std = mtl["TARGET_STATE"] == "CALIB"
 
+    ntargs = len(targs)
     nobs = len(unique_timestamps)
-    nobs_arr = np.zeros((nobs, nobs))
+    nobs_arr = np.zeros((ntargs, nobs, nobs))
     for i, time in enumerate(unique_timestamps):
         keep_rows = timestamps <= time
         # print(sum(keep_rows))
 
         trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
-        c = np.bincount(trunc_mtl["NUMOBS"], minlength=nobs)
-        nobs_arr[i, :] = c
+
+        for j, t in enumerate(targs):
+            # if not split_subtype:
+            this_targ = trunc_mtl["DESI_TARGET"] == t
+            c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
+            nobs_arr[j, i, :] = c
     # Reverse to go max down to zero, then sum to get how many have at least that number exposures
     # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
     # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
-    at_least_n = np.cumsum(nobs_arr[:, ::-1], axis=1)[:, ::-1]
+    at_least_n = np.cumsum(nobs_arr[:, :, ::-1], axis=2)[:, :, ::-1]
 
     return nobs_arr, at_least_n
 

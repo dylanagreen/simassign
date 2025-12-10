@@ -3,8 +3,6 @@
 # Process the MTLS into necessary arrays for summary plots, to avoid
 # having to reprocess when making plots and iterating.
 
-# python process_mtls.py  --mtls  /pscratch/sd/d/dylang/fiberassign/mtl-4exp-lae-1000-big-nproc-32-inputtiles-withstds/ -o /pscratch/sd/d/dylang/fiberassign/processed/  --nproc 32 --suffix "lae-1000-big-inputtiles-withstds"
-
 # TODO proper docstring
 # stdlib imports
 import argparse
@@ -94,7 +92,7 @@ nobs = len(timestamps)
 targs = [np.unique(mtl["DESI_TARGET"]) for mtl in mtl_all.values()]
 targs = np.concatenate(targs)
 targs = np.unique(targs)
-targs = targs[targs < 2 ** 10] # Not gonna use anything more than bit 10 for this.
+targs = targs[targs < 2 ** 12] # Not gonna use anything more than bit 12 for this.
 
 # Geenerate the list of all targets to find results for, when splitting on subtype
 if args.split_subtype:
@@ -136,7 +134,7 @@ print("Num mtls:", len(list(mtl_all.values())))
 print("Num obs:", nobs)
 
 def get_nobs_mp(mtl):
-    return get_nobs_arr(mtl, timestamps)
+    return get_nobs_arr(mtl, global_targs=targs, global_timestamps=timestamps)
 
 def get_done_mp(mtl):
     if args.account_for_avail:
@@ -207,6 +205,7 @@ else:
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
 
+np.save(out_dir / f"targs_{args.suffix}.npy", targs)
 
 t_start = time.time()
 del res
