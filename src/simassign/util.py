@@ -398,85 +398,6 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     return targ_files, tile_files, ntargs_on_tile
 
-# TODO merge this with targ done, there is a lot of code duplication.
-def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
-    """
-    Given an MTL generate an array of the number of targets with $m <= N$ observations
-    after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
-    correspond with the end of a pass or an observing night, depending on strategy
-    used.
-
-    Parameters
-    ----------
-    mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
-        A numpy rec array or astropy Table representing the MTL. It is
-        necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
-
-    global_timestamps : :class:`~numpy.array`
-        An array of global timestamps to use for generating the number of observations.
-        I.e. return the number of observations at each timestamp in global_timestamps
-        rather than at each timestamp in the input mtl. Optional, defaults to None,
-        which uses the timestamps in the input mtl.
-
-    Returns
-    -------
-    :class:`~numpy.array`
-        Array storing the number of targets with the number of observations
-        given by the 1st axis, at the update number given by the position
-        in the 0th axis. For example, the position obs_arr[6, 3] indicates
-        how many targets have *exactly* 3 exposures after 6 MTL updates.
-
-    :class:`~numpy.array`
-        Array storing the number of targets with *at least* the number of
-        observations given by the 1st axis. For example, the position
-        at_least_arr[6, 3] indicates
-        how many targets have 3 *or more* exposures after 6 MTL updates.
-    """
-    timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
-
-    if global_timestamps is not None:
-        unique_timestamps = np.unique(global_timestamps)
-    else:
-        unique_timestamps = np.unique(timestamps)
-
-    if global_targs is not None:
-        targs = global_targs
-    else:
-        good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
-
-        # if not split_subtype:
-        targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
-
-    # Timestamps correspond with when the MTL was created/updated
-    # So we can loop over the timestamps to get information from each
-    # fiberassign run.
-    is_std = mtl["TARGET_STATE"] == "CALIB"
-
-    ntargs = len(targs)
-    nobs = len(unique_timestamps)
-    nobs_arr = np.zeros((ntargs, nobs, nobs))
-
-    ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
-    these_timestamps = unique_timestamps[ts_in_this_mtl]
-    for i, time in enumerate(these_timestamps):
-        ts_idx = np.where(unique_timestamps == time)[0][0]
-        keep_rows = timestamps <= time
-        # print(sum(keep_rows))
-
-        trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std)])
-
-        for j, t in enumerate(targs):
-            # if not split_subtype:
-            this_targ = trunc_mtl["DESI_TARGET"] == t
-            c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
-            nobs_arr[j, ts_idx:, :] = c
-    # Reverse to go max down to zero, then sum to get how many have at least that number exposures
-    # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
-    # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
-    at_least_n = np.cumsum(nobs_arr[:, :, ::-1], axis=2)[:, :, ::-1]
-
-    return nobs_arr, at_least_n
-
 def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
                       tid_counts=None, full_nobs=False):
     """
@@ -527,7 +448,36 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
 
     Returns
     -------
-    TODO write the return types.
+
+    nobs_arr : :class:`~numpy.array`
+        By default, returns an array of shape (num_targs, num_timestamps),
+        where the value at each element is the number of objects with that target
+        bit that has reached its goal. If full_nobs is True, instead returns an
+        array storing the number of targets with the number of observations
+        given by the 1st axis, at the update number given by the position
+        in the 0th axis. For example, the position obs_arr[6, 3] indicates
+        how many targets have *exactly* 3 exposures after 6 MTL updates.
+
+    num_arr : :class:`~numpy.array`
+        By default, returns an array with the total number of targets with
+        each targeting bit. If full_nobs is True, instead returns an
+        array storing the number of targets with *at least* the number of
+        observations given by the 1st axis. For example, the position
+        at_least_arr[6, 3] indicates
+        how many targets have 3 *or more* exposures after 6 MTL updates.
+
+    targets_obs : :class:`~numpy.array`, optional
+        Array storing an array of shape (num_targs, num_timestamps),
+        where the value at each element is the number of objects with that target
+        bit that was observed at that timestamp.
+        Only returned if delta_stats = True.
+
+    targets_obs_but_done : :class:`~numpy.array`, optional
+        Array storing an array of shape (num_targs, num_timestamps),
+        where the value at each element is the number of objects with that target
+        bit that was observed at that timestamp, but were already done so this
+        observation was an over observation.
+        Only returned if delta_stats = True.
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
@@ -582,7 +532,11 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # fiberassign run.
     nobs = len(unique_timestamps)
     ntargs = len(targs)
-    nobs_arr = np.zeros((ntargs, nobs))
+
+    if full_nobs:
+        nobs_arr = np.zeros((ntargs, nobs, nobs))
+    else:
+        nobs_arr = np.zeros((ntargs, nobs))
     num_each_targ = np.zeros(ntargs)
 
     # For speed we can iterate only over timestamps in this file, and
@@ -620,10 +574,14 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                     name = name.split("|")[0]
                     this_targ = this_targ & (trunc_mtl[f"{name}_TARGET"] == sub_bit)
 
-            # Should broadcast correctly. Flood fill all above this time to
-            # the results for this timestamp. At next higher timestamp
-            # everything above will be overwritten.
-            nobs_arr[j, ts_idx:] = np.sum(is_done[this_targ])
+            if full_nobs:
+                c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
+                nobs_arr[j, ts_idx:, :] = c
+            else:
+                # Should broadcast correctly. Flood fill all above this time to
+                # the results for this timestamp. At next higher timestamp
+                # everything above will be overwritten.
+                nobs_arr[j, ts_idx:] = np.sum(is_done[this_targ])
 
             # This mostly used to determine fractional completeness.
             if i == 0:
@@ -639,6 +597,14 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
 
     if delta_stats:
         return nobs_arr, num_each_targ, targets_obs, targets_obs_but_done
+
+    if full_nobs:
+        # Reverse to go max down to zero, then sum to get how many have at least that number exposures
+        # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
+        # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
+        at_least_n = np.cumsum(nobs_arr[:, :, ::-1], axis=2)[:, :, ::-1]
+        return nobs_arr, at_least_n
+
     return nobs_arr, num_each_targ
 
 # Points defining the hulls surrounding the survey area.

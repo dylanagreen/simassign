@@ -134,7 +134,14 @@ print("Num mtls:", len(list(mtl_all.values())))
 print("Num obs:", nobs)
 
 def get_nobs_mp(mtl):
-    return get_nobs_arr(mtl, global_targs=targs, global_timestamps=timestamps)
+    if args.account_for_avail:
+        return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
+                                 delta_stats=args.delta_stats, tid_counts=tid_counts,
+                                 full_nobs=True)
+    else:
+        return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
+                                 delta_stats=args.delta_stats,
+                                 full_nobs=True)
 
 def get_done_mp(mtl):
     if args.account_for_avail:
