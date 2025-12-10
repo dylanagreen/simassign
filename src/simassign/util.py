@@ -398,6 +398,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     return targ_files, tile_files, ntargs_on_tile
 
+# TODO merge this with targ done, there is a lot of code duplication.
 def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
@@ -454,7 +455,11 @@ def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
     ntargs = len(targs)
     nobs = len(unique_timestamps)
     nobs_arr = np.zeros((ntargs, nobs, nobs))
-    for i, time in enumerate(unique_timestamps):
+
+    ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
+    these_timestamps = unique_timestamps[ts_in_this_mtl]
+    for i, time in enumerate(these_timestamps):
+        ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
         # print(sum(keep_rows))
 
@@ -464,7 +469,7 @@ def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
             # if not split_subtype:
             this_targ = trunc_mtl["DESI_TARGET"] == t
             c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
-            nobs_arr[j, i, :] = c
+            nobs_arr[j, ts_idx:, :] = c
     # Reverse to go max down to zero, then sum to get how many have at least that number exposures
     # i.e. at least 3 exposures should be the sum of n_3 and n_4. Since it's reversed this is true
     # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
@@ -473,7 +478,7 @@ def get_nobs_arr(mtl, global_targs=None, global_timestamps=None):
     return nobs_arr, at_least_n
 
 def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
-                      tid_counts=None):
+                      tid_counts=None, full_nobs=False):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -509,9 +514,16 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
 
     tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table with columns "TARGETID" and "POSSIBLE".
-         If provided, do not process any TARGETIDs whose POSSIBLE assignments
-          are less than NUMOBS_INIT (the goal number of observations). Defaults to None,
-          which means process all targets.
+        If provided, do not process any TARGETIDs whose POSSIBLE assignments
+        are less than NUMOBS_INIT (the goal number of observations). Defaults to None,
+        which means process all targets.
+
+    full_nobs : bool
+        If True, return the full array of number of observations per target
+        per MTL update time. If False, return only the arrays per target of
+        the number of targets that reached their goal number of exposures.
+        The latter is significanlty faster, and adequate for most analyses.
+        Defaults to False.
 
     Returns
     -------
