@@ -239,7 +239,7 @@ def rotate_tiling(tiles_tbl, pass_num=1):
     ----------
     tiles_tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
-        The datamodel is largely agnostic, but should include at minimum the
+        The data model is largely agnostic, but should include at minimum the
         tile centers as columns "RA" and "DEC".
 
     pass_num : int
@@ -300,7 +300,7 @@ def targets_in_tile(targs, tile_center):
     ----------
     targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the target definition.
-        The datamodel is largely agnostic, but should include at minimum the
+        The data model is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each target position. Any other
         columns are ignored.
 
@@ -335,12 +335,12 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     ----------
     targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the target definition.
-        The datamodel is largely agnostic, but should include at minimum the
+        The data model is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each target position.
 
     tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
-        The datamodel is largely agnostic, but should include at minimum the
+        The data model is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each tile center.
 
     out_dir : str or :class:`~pathlib.Path`
@@ -668,7 +668,39 @@ sgc_points = np.array([[304.844, -17.566],
                        [305.58 , -15.718]])
 
 def check_in_survey_area(tbl, survey=None, trim_rad=0):
-    # TODO docstring
+    """
+    Check if the points defined in tbl are contained within the given survey area.
+
+    Parameters
+    ----------
+    tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the points to check with len
+        N_points. The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each point's position.
+
+    survey : :class:`~numpy.array` or list of :class:`~numpy.array`, optional
+        Array of shape (N_vertex, 2) defining the polygon with N_vertex vertices
+        that outline the survey area. Surveys that are disjoint (for exmaple,
+        a survey that has an NGC and an SGC) can be passed as a list of
+        arrays, where each array has the given form. Optional, and defaults
+        to None which uses a nominal appriximately 5000 sq deg. DESI 2 polygon.
+
+    trim_rad : float, optional
+        Float defining the trim radius. The trim radius is used to reduce or
+        increase the size of the survey area for determining point inclusion.
+        Points will be kept if they're at least trim_rad away from the edge
+        of the polygon, where generally positive means inside and negative means
+        outside (positive shrinks the polygon, negative grows it).
+        Useful if the tbl defines tile centers and trim_rad can be used to ensure
+        the entire tile is inside the survey as opposed to just the center.
+        Defaults to 0.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Boolean array of len N_points where an element is True if that point is
+        inside the survey area and False if not.
+    """
     # Extracting the points as a 2d array
     data_ra = np.array(tbl["RA"], dtype=float)
     data_dec = np.array(tbl["DEC"], dtype=float)
@@ -680,7 +712,7 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
             for i in range(len(survey)):
                 survey_path = mpPath(survey[i])
 
-                # Some polygon wrapped around so we need to wwrap some of the targets
+                # Some polygon wrapped around so we need to wrap some of the targets
                 if np.any(survey[i][:, 0] > 360):
                     to_rotate = data_ra < np.max(survey[i][:, 0] - 360)
                     data_points_rotate = np.array(data_points, copy=True)
@@ -715,12 +747,39 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
 
     return in_survey
 
-def check_in_tile_area(tbl, tiles, nside=256):
-    # TODO docstring
+def check_in_tile_area(targs, tiles, nside=256):
+    """
+    Check if the points defined in tbl are contained within the tiles
+    defined by tiles.
+
+    Uses healpixels to compute this fast, but with some slight inaccuracy.
+
+    Parameters
+    ----------
+    targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the target definition.
+        The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each target position.
+
+    tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the tile definition.
+        The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each tile center.
+
+    nside : int, optional
+        Integer defining the nside to use for the healpixel conversion.
+        Higher numbers will be more accurate but slower. Defaults to 256.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Boolean array of len N_points where an element is True if that point is
+        approximately covered by one of the tiles and False if not.
+    """
     hpx_tiles = tiles2pix(nside, tiles["TILEID", "RA", "DEC"], fact=2**9)
 
-    ra = tbl["RA"]
-    dec = tbl["DEC"]
+    ra = targs["RA"]
+    dec = targs["DEC"]
 
     theta, phi = np.radians(90 - dec), np.radians(ra)
     hpx_targs = hp.ang2pix(nside, theta, phi, nest=True)
@@ -791,7 +850,27 @@ def shift_stripes(num_shifts, tile_centers):
     return out_centers
 
 def target_mask_to_int(targetmask):
-    # TODO docstring
+    """
+    Convert the bits that define targets in targetmask to a single integer
+
+    Parameters
+    ----------
+    targetmask : dict
+        Dictionary defining the targetmask from, for example, load_target_yaml.
+
+    Returns
+    -------
+    int
+        Integer where a bit is set if that bit defines a science target in the
+        input targetmask.
+
+    Notes
+    -----
+
+    This is a convenience function to use for fiberassign, which can take in
+    an integer reprsenting which bits to use as science targets in an input
+    catalog.
+    """
     science_mask = 0
     for row in targetmask["desi_mask"]:
         science_mask += 2 ** (row[1])
