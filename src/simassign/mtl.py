@@ -149,7 +149,7 @@ def deduplicate_mtl(mtl):
     Parameters
     ----------
     mtl : :class:`~numpy.array` or :class:`~astropy.table.Table`
-        A numpy rec array or astropy Table storing the MTL. The datamodel is
+        A numpy rec array or astropy Table storing the MTL. The data model is
         largely agnostic, but should include at least the columns TARGETID and
         TIMESTAMP. This function assumes that the MTL is correctly sorted by
         TARGETID, and then TIMESTAMP, such that subsequent entries for the same
@@ -267,7 +267,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     Under the hood this function uses the `desitarget` MTL creation functions
     to initialize a table with the necessary MTL data model
     required columns. The column values are updated as necessary to match
-    the simassign targetmask.yaml file LAE targets.
+    the simassign targetmask.yaml.
 
     Parameters
     ----------
@@ -439,7 +439,23 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     return
 
 def concatenate_mtls(mtl_a, mtl_b):
-    # TODO docstring
+    """
+    Cocnatenate two MTLs, ensuring the resulting file is sorted correctly.
+
+    Parameters
+    ----------
+    mtl_a : :class:`~astropy.table.Table`
+        One of two MTLs to concatenate.
+
+    mtl_b : :class:`~astropy.table.Table`
+        One of two MTLs to concatenate.
+
+    Returns
+    -------
+    :class:`~astropy.table.Table` or dict
+       A concatenated MTL containing the targets in both input MTLs and properly
+       sorted by TARGETID and then TIMESTAMP.
+    """
     joined = vstack([mtl_a, mtl_b])
     joined.sort(["TARGETID", "TIMESTAMP"])
     return joined
