@@ -26,7 +26,7 @@ from pathlib import Path
 
 from simassign.mtl import *
 from simassign.util import *
-from simassign.io import load_catalog, load_mtl_all
+from simassign.io import load_mtl_all
 
 import logging
 LEVEL = 15 # More than debug less than info
@@ -100,10 +100,8 @@ if args.density:
     tbl = Table()
     tbl["RA"] = ra
     tbl["DEC"] = dec
-elif (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
-    tbl = load_catalog(args.catalog, [args.ramin, args.ramax, args.decmin, args.decmax])
 else:
-    tbl = load_catalog(args.catalog)
+    tbl = Table.read(args.catalog)
 
 # TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
 # table, so it breaks the stacking of the two.
@@ -153,7 +151,7 @@ else:
         # exist entirely in memory until it's needed. But we create it first using this function
         # To make sure all priorities etc. are set correctly. Creating it later would
         # overwrite all the history int he MTL.
-        tbl_b = load_catalog(args.catalog_b)
+        tbl_b = Table.read(args.catalog_b)
         mtl_all_b = initialize_mtl(tbl_b, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id = len(tbl))
 
     if args.stds is not None:

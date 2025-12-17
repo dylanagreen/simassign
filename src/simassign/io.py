@@ -7,50 +7,31 @@ from multiprocessing import Pool
 
 from simassign.mtl import deduplicate_mtl
 
-def load_catalog(file_loc, box=None):
+def load_mtl(mtl_loc, deduplicate_on_load=False, verbose=True):
     """
-    Load a catalog of targets located at file_loc, and return their right
-    ascension (RA) and declination (DEC) coordinates.
+    Load a single MTL healpix stored in mtl_loc.
 
     Parameters
     ----------
-    file_loc : str or :class:`~pathlib.Path`
-        Catalog file location
+    mtl_loc : :class:`~pathlib.Path`
+        Location where a single MTL is stored.
 
-    box : :class:`~numpy.array`
-        If not None, should be a four element array defining the corners of
-        a box in RA, DEC space. The target catalog will be cut to the given
-        box, and only objects that lie within that box are kept. Defaults
-        to None (return all targets).
+    deduplicate_on_load : bool
+        Whether to deduplicate the table to get only the latest entries for all targets
+        at loading time. If True, calls
+        deduplicate_MTL() on the loaded MTL before returning it. Defaults
+        to False.
+
+    verbose : bool
+        Whether to verbosely print the parameters used to load this MTL. Defaults
+        to True.
 
     Returns
     -------
     :class:`~astropy.table.Table`
-        Catalog as an astropy table.
-
+        MTL table from mtl_loc.
     """
-    # TODO: support arbitrary cutting geometry.
-    print(f"Loading catalog from... {file_loc}")
-    # If box provided must be len four (two edges in RA/DEC each)
-    if box is not None:
-        assert len(box) == 4, "Must provide all four box edges!"
-
-    tbl = Table.read(file_loc)
-
-    # Actually does the cutting down, which we only need to do if
-    # the box was provided.
-    if box is not None:
-        ra_min, ra_max, dec_min, dec_max = box
-        in_ra = (tbl["RA"] >= (ra_min)) & (tbl["RA"] <= (ra_max))
-        in_dec = (tbl["DEC"] >= (dec_min)) & (tbl["DEC"] <= (dec_max))
-
-        tbl = tbl[in_ra & in_dec]
-
-    return tbl
-
-def load_mtl(mtl_loc, deduplicate_on_load=False):
-    # TODO docstirng?
-    print(f"Loading {mtl_loc.name} with deduplicate_on_load={deduplicate_on_load}")
+    if verbose: print(f"Loading {mtl_loc.name} with deduplicate_on_load={deduplicate_on_load}")
     tbl = Table.read(mtl_loc)
     if deduplicate_on_load:
         tbl = deduplicate_mtl(tbl)
@@ -126,7 +107,7 @@ def load_fba_all(fba_dir, hdu="FAVAIL", nproc=1):
     # TODO docstring
     locs = list(fba_dir.glob("fba*.fits"))
 
-    assert len(locs) > 0, "No fba files found as either ecsv or fits!"
+    assert len(locs) > 0, "No fba files found!"
 
     tiles = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
     args = [(l, hdu) for l in locs]
