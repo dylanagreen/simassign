@@ -31,6 +31,7 @@ parser.add_argument("--add_tiledone", required=False, action="store_true", help=
 parser.add_argument("--stripes", required=False, action="store_true", help="use stripe tiling instead of DESI-I-like symmetrical tiling.")
 parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
+parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -48,12 +49,15 @@ args = parser.parse_args()
 
 def add_tile_cols(tiles):
     tile_tbl = Table(tiles)
-    tile_tbl["PROGRAM"] = tile_tbl["PROGRAM"].astype("<U15")
+    if "PROGRAM" in tile_tbl.colnames:
+        tile_tbl["PROGRAM"] = tile_tbl["PROGRAM"].astype("<U15")
     tile_tbl["PROGRAM"] = args.obscon.upper()
     if args.obscon.upper() == "DARK":
         tile_tbl["OBSCONDITIONS"] = 2**0
     elif args.obscon.upper() == "BRIGHT":
         tile_tbl["OBSCONDITIONS"] = 2**2
+    elif args.obscon.upper() == "DARK1B":
+        tile_tbl["OBSCONDITIONS"] = 2**10
     else:
         tile_tbl["OBSCONDITIONS"] = 2**1 # GRAY.
 
@@ -191,7 +195,7 @@ tiles["PRIORITY_BOOSTFAC"] = 1.0
 # Need these for survey sim
 tiles["IN_DESI"][-2:] = True
 tiles["PROGRAM"] = tiles["PROGRAM"].astype("<U15")
-if args.obscon.upper() == "DARK":
+if (args.obscon.upper() == "DARK") | (args.obscon.upper() == "DARK1B"):
     tiles["PROGRAM"][-2] = "BRIGHT"
 else:
     tiles["PROGRAM"][-2] = "DARK"
@@ -226,6 +230,8 @@ tiles["TIMESTAMP_YMD"] = ts
 
 if args.add_tiledone:
     tiles["TILEDONE"] = tiles["IN_DESI"]
+if args.desionly:
+    tiles = tiles[tiles["IN_DESI"]]
 
 print(tiles)
 print(len(tiles["TILEID"]), len(np.unique(tiles["TILEID"])))
