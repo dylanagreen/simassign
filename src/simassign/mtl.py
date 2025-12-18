@@ -5,17 +5,46 @@
 import numpy as np
 from astropy.table import Table, join, vstack
 import healpy as hp
+import yaml
 
 # DESI imports
-from desitarget.mtl import make_mtl, get_utc_date, make_ledger_in_hp
-from desitarget.targets import encode_targetid, decode_targetid
+from desitarget.mtl import make_mtl, get_utc_date
+from desitarget.targets import encode_targetid
 
 # stdlib imports
 from importlib import resources
 from multiprocessing import Pool
 from pathlib import Path
 import shutil
-import yaml
+
+mtl_cols = ['RA',
+            'DEC',
+            'PMRA',
+            'PMDEC',
+            'REF_EPOCH',
+            'DESI_TARGET',
+            'TARGETID',
+            'BGS_TARGET',
+            'MWS_TARGET',
+            'NUMOBS_INIT',
+            'PRIORITY_INIT',
+            'PRIORITY',
+            'SUBPRIORITY',
+            'SCND_TARGET',
+            'NUMOBS_MORE',
+            'NUMOBS',
+            'Z',
+            'ZWARN',
+            'ZTILEID',
+            'Z_QN',
+            'IS_QSO_QN',
+            'DELTACHI2',
+            'TARGET_STATE',
+            'TIMESTAMP',
+            'VERSION',
+            'OBSCONDITIONS',
+            'HEALPIX']
+
 
 def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitarget=False, verbose=False):
     """
@@ -188,86 +217,17 @@ def load_target_yaml(fname):
     with open(floc) as f:
         return yaml.safe_load(f)
 
-def _load_and_update(mtl_loc, targetmask, tbl):
-    print(f"Loading {mtl_loc.name}")
-    temp_tbl = Table.read(mtl_loc)
-    # Helpixels are not z filled to the same digit length otherwies I'd use a regex to pull this out.
-    hpx = mtl_loc.name.split("-")[-1].split(".")[0]
-    temp_tbl["HEALPIX"] = int(hpx)
-
-    using_qso_target = "QSO_TARGET" in tbl.colnames
-    using_lbg_target = "LBG_TARGET" in tbl.colnames
-
-    for target in targetmask["desi_mask"]:
-        bit = 2**target[1]
-        name = target[0]
-        this_target = (temp_tbl["DESI_TARGET"] & bit) != 0
-
-        print(f"Init Target {target} {np.sum(this_target)}")
-
-        # Update to custom target type.
-        temp_tbl["TARGET_STATE"] = temp_tbl["TARGET_STATE"].astype("<U15") # So we don't truncate status.
-        temp_tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
-
-        temp_tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
-        temp_tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
-
-        # Adjusting num obs for high z qsos.
-        if using_qso_target:
-            # Propogate the QSO mask as necessary
-            qso_mask = tbl["QSO_TARGET"][np.isin(tbl["TARGETID"], temp_tbl["TARGETID"])]
-            temp_tbl["QSO_TARGET"] = qso_mask
-            if name == "QSO":
-                for qso_bit in range(len(targetmask["qso_mask"])):
-                    this_qso = temp_tbl["QSO_TARGET"] == 2 ** qso_bit
-                    mult = targetmask["qso_mask"][qso_bit][-1]["numobs_mult"]
-                    print(f"qso_bit {qso_bit}, mult {mult}, {np.sum(this_qso)}")
-                    temp_tbl["NUMOBS_INIT"][this_qso] *= mult
-                    temp_tbl["NUMOBS_MORE"][this_qso] *= mult
-
-                # Adjusting num obs for high z qsos.
-        if using_lbg_target:
-            # Propogate the LBG
-            # As long as the tbl is sorted on targetid these will be in the
-            # same order as the temp_tbl, which we know to be sorted in
-            # targetid order beacuse of make_ldeger_in_hp
-            lbg_mask = tbl["LBG_TARGET"][np.isin(tbl["TARGETID"], temp_tbl["TARGETID"])]
-            temp_tbl["LBG_TARGET"] = lbg_mask
-            if name == "LBG":
-                for lbg_bit in range(len(targetmask["lbg_mask"])):
-                    this_lbg = temp_tbl["LBG_TARGET"] == 2 ** lbg_bit
-                    mult = targetmask["lbg_mask"][lbg_bit][-1]["numobs_mult"]
-                    print(f"lbg_bit {lbg_bit}, mult {mult}, {np.sum(this_lbg)}")
-                    temp_tbl["NUMOBS_INIT"][this_lbg] *= mult
-                    temp_tbl["NUMOBS_MORE"][this_lbg] *= mult
-
-        # Make sure the obsoncditions are set right
-        obscond = target[-1]["obsconditions"]
-        obscond = obscond.split("|")
-        temp_tbl["OBSCONDITIONS"][this_target] = 0 # Reset the values added by the desitarget mtl.
-        for oc in targetmask["obsconditions"]:
-            if oc[0] in obscond: # 0 is the name, 1 is the bit
-                temp_tbl["OBSCONDITIONS"][this_target] += (2**oc[1])
-
-        temp_tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
-        temp_tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
-
-    # TODO make this a parameter so the MTL can accurately reflect when
-    # MTL_B targets were added.
-    temp_tbl["TIMESTAMP"] = "2024-12-30T00:00:00+00:00" # Want the init timemstamp to be earlier than the survey (20250101)
-    temp_tbl.write(mtl_loc, overwrite=True) # Keep the original file extension.
-    return hpx, temp_tbl
 
 def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
-                   as_dict=False, targetmask=None, nproc=1, start_id=0):
+                   as_dict=False, targetmask=None, nproc=1, start_id=0,
+                   timestamp="2024-12-30T00:00:00+00:00"):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
 
-    Under the hood this function uses the `desitarget` MTL creation functions
-    to initialize a table with the necessary MTL data model
-    required columns. The column values are updated as necessary to match
-    the simassign targetmask.yaml.
+    This functoin generates an MTL from scratch to match the expected
+    datamodel. The column values are updated as necessary to match
+    the either the simassign targetmask.yaml or the input targetmask.
 
     Parameters
     ----------
@@ -279,18 +239,18 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         based on the targetmask.yaml. Otherwise if this column is not provided
         all targets will be assumed to be LAEs.
 
-    save_dir : str or :class:`~pathlib.Path`
-       If given, where to save the produced MTL. Saving the MTL is done using
-       `make_ledger_hp`, which generates the MTLs and splits them by healpix,
-       saving them in the `save_dir`. Defaults to None.
+    save_dir : str or :class:`~pathlib.Path`, optional
+        If given, where to save the produced MTL. MTLs are split by healpixel
+        and saved in per healpixel sub-MTLs. Defaults to None, which does
+        not save the MTL to disk.
 
-    stds_catalog : str or :class:`~pathlib.Path`
+    stds_catalog : str or :class:`~pathlib.Path`, optional
         If given, the a catalog that contains standard stars. Standard
-         stars are appended to the input table before MTL generation. Only
-         standard stars that lie in the healpix covering base_tbl are kept.
-         Defaults to None.
+        stars are appended to the input table before MTL generation. Only
+        standard stars that lie in the healpix covering base_tbl are kept.
+        Defaults to None.
 
-    return_mtl_all : bool
+    return_mtl_all : bool, optional
         Whether to return the initialized, concatenated mtl_all or not. In
         some cases when the MTL is large it is more efficient to only
         save them per healpix, and load them as necessary instead of storing
@@ -299,31 +259,34 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         except waste memory and time, since the MTL will not be saved
         nor returned. Defaults to True.
 
-    as_dict : bool
+    as_dict : bool, optional
         Whether to return the mtl_all as a dict, with healpixel number as the key
         and the value as the individual MTL corresponding tot hat healpixel,
         or to stack the entire table into one. Defaults to False (stacking as a single table).
 
-    targetmask : dict
+    targetmask : dict, optional
         Targetmask to use for target bits and target priorities where necessary. Defaults
         to None, which loads the default targetmask stored in the simassign pacakge.
 
-    nproc : int
+    nproc : int, optional
         How many processes to use to initialize the mtl with the correct values.
-        This function necessitates loading the MTLS created by desitarget, using
-        nproc > 1 allows these to be loaded and updated in parallel.
+        Currently does nothing, defaults to 1.
 
-    start_id : int
+    start_id : int, optional
         Starting index of targets, for encoding unique targetids if we plan to
         join MTLs later in the survey. This ensures targets have unique targetis
         on join. Defaults to zero.
+
+    timestamp : str, optional
+        Timestamp to encode into this MTL, representing the starting date/time
+        of the ledger. Defaults to "2024-12-30T00:00:00+00:00".
 
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table` or dict
        MTL corresponding to the targets given in the `base_tbl`. Even when saving
        the MTL split across healpix (when `save_dir` is passed) this function
-       still returns the full global MTL.
+       still returns the full global MTL. Only returns when return_mtl_all is True.
     """
     # Minimum set of columns necessary for make_mtl:
     # TARGETID`, `DESI_TARGET`, `BGS_TARGET`, `MWS_TARGET`, `NUMOBS_INIT`, `PRIORITY_INIT`, `PRIORITY` (because we won't pass a zcat)
@@ -347,10 +310,15 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     # These two are unused but necessary to exist for mtl
     tbl["BGS_TARGET"] = 0
     tbl["MWS_TARGET"] = 0
+    tbl["SCND_TARGET"] = 0
 
-    # QSO: {UNOBS: 3400, MORE_ZGOOD: 3350, MORE_ZWARN: 3300, MORE_MIDZQSO: 100, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
-    # Most of these will be rewritten by desitarget, they just need to exist.
+    # Most of these will be rewritten per target, they just need to exist
+    # So that they span the entire table.
     tbl["NUMOBS_INIT"] = 4
+    tbl["NUMOBS_MORE"] = 4
+    tbl["NUMOBS"] = 0
+    tbl["OBSCONDITIONS"] = 0
+    tbl["TARGET_STATE"] = "UNOBS"
     tbl["PRIORITY_INIT"] = 3400
     tbl["PRIORITY"] = 3400
 
@@ -360,6 +328,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     nside = 64
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
     hpx_data = hp.ang2pix(nside, theta, phi, nest=True)
+    tbl["HEALPIX"] = hpx_data
     pixlist = np.unique(hpx_data)
 
     using_qso_target = "QSO_TARGET" in tbl.colnames
@@ -367,6 +336,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     if stds_tbl is not None:
         theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
         hpx = hp.ang2pix(nside, theta, phi, nest=True)
+        stds_tbl["HEALPIX"] = hpx
         keep_stds = np.isin(hpx, pixlist)
         keep_cols = tbl.colnames
 
@@ -379,34 +349,92 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     if targetmask is None:
         targetmask = load_target_yaml("targetmask.yaml")
 
-    tbl.sort("TARGETID") # Won't be sorted on targetid after adding stds.
+    # Various afterburner / target parameters we don't care about too much
+    # because we don't have actual spectra, just target positions,
+    tbl["PMRA"] = 0.0
+    tbl["PMDEC"] = 0.0
+    tbl["REF_EPOCH"] = 0.0
+
+    tbl["Z"] = -1.0
+    tbl["ZWARN"] = -1
+    tbl["ZTILEID"] = -1
+    tbl["Z_QN"] = -1.0
+    tbl["IS_QSO_QN"] = -1
+    tbl["DELTACHI2"] = -1.0
+
+    # TODO make this a parameter so the MTL can accurately reflect when
+    # tbl_B targets were added.
+    tbl["TIMESTAMP"] = timestamp
+    tbl["VERSION"] = "0.0.1" # TODO make this the simassign version.
+
+    for c in mtl_cols:
+        assert c in tbl.colnames, f"{c} not found in cols!"
+
+    # Set the target per target priority/numb obs values.
+    for target in targetmask["desi_mask"]:
+        bit = 2**target[1]
+        name = target[0]
+        this_target = (tbl["DESI_TARGET"] & bit) != 0
+
+        print(f"Init Target {target} {np.sum(this_target)}")
+
+        # Update to custom target type.
+        tbl["TARGET_STATE"] = tbl["TARGET_STATE"].astype("<U15") # So we don't truncate status.
+        tbl["TARGET_STATE"][this_target] = f"{name}|UNOBS"
+
+        tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
+        tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
+
+        # Adjusting num obs for high z qsos.
+        if using_qso_target:
+            if name == "QSO":
+                for qso_bit in range(len(targetmask["qso_mask"])):
+                    this_qso = tbl["QSO_TARGET"] == 2 ** qso_bit
+                    mult = targetmask["qso_mask"][qso_bit][-1]["numobs_mult"]
+                    print(f"qso_bit {qso_bit}, mult {mult}, {np.sum(this_qso)}")
+                    tbl["NUMOBS_INIT"][this_qso] *= mult
+                    tbl["NUMOBS_MORE"][this_qso] *= mult
+
+                # Adjusting num obs for high z qsos.
+        if using_lbg_target:
+            if name == "LBG":
+                for lbg_bit in range(len(targetmask["lbg_mask"])):
+                    this_lbg = tbl["LBG_TARGET"] == 2 ** lbg_bit
+                    mult = targetmask["lbg_mask"][lbg_bit][-1]["numobs_mult"]
+                    print(f"lbg_bit {lbg_bit}, mult {mult}, {np.sum(this_lbg)}")
+                    tbl["NUMOBS_INIT"][this_lbg] *= mult
+                    tbl["NUMOBS_MORE"][this_lbg] *= mult
+
+        # Make sure the obsoncditions are set right
+        obscond = target[-1]["obsconditions"]
+        obscond = obscond.split("|")
+        for oc in targetmask["obsconditions"]:
+            if oc[0] in obscond: # 0 is the name, 1 is the bit
+                tbl["OBSCONDITIONS"][this_target] += (2**oc[1])
+
+        tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+        tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+
     print(f"{len(pixlist)} HEALpix.")
     if save_dir is not None:
         base_dir = Path(save_dir)
         if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
-
-        # Run mtl to split them into healpix ledgers.
-        # Can you believe this mutates the input?
-        make_ledger_in_hp(Table(tbl, copy=True), str(base_dir / "hp"), nside=nside, pixlist=pixlist, obscon="DARK", verbose=True)
         hp_base = base_dir / "hp" / "main" / "dark"
+        hp_base.mkdir(parents=True, exist_ok=True)
 
-        mtl_all = {}
-
-        locs = list(hp_base.glob("*.ecsv"))
-        mtl_hpx = [loc.name.split("-")[-1].split(".")[0] for loc in locs]
-        load_args = [(loc, targetmask, tbl) for i, loc in enumerate(locs)] #[hpx_data == mtl_hpx[i]]
-
-        with Pool(nproc) as p:
-            res = p.starmap(_load_and_update, load_args)
-
-        # Extract the tables from the results into a dictionary.
         if as_dict:
-            for (hpx, temp_tbl) in res:
-                mtl_all[int(hpx)] = temp_tbl
+            tbl.sort(["HEALPIX", "TARGETID"]) # This will make the next line slightly quicker... I think.
+            mtl_all = {}
+            for hpx in pixlist:
+                mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
+                # mtl_all[hpx].sort("TARGETID")
+
+                fname =  f"mtl-dark-hp-{hpx}.ecsv"
+                mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
+                print(f"Saved to {str(hp_base / fname)}")
 
         # Want the global MTL sorted on TARGETID too.
-        if return_mtl_all and not as_dict:
-            mtl_all = vstack([r[1] for r in res])
+        else:
             mtl_all.sort("TARGETID")
             mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
     else:

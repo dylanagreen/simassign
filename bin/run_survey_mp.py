@@ -152,7 +152,7 @@ else:
         # To make sure all priorities etc. are set correctly. Creating it later would
         # overwrite all the history int he MTL.
         tbl_b = Table.read(args.catalog_b)
-        mtl_all_b = initialize_mtl(tbl_b, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id = len(tbl))
+        mtl_all_b = initialize_mtl(tbl_b, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id=len(tbl))
 
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
