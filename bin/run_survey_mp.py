@@ -27,25 +27,7 @@ from pathlib import Path
 from simassign.mtl import *
 from simassign.util import *
 from simassign.io import load_mtl_all
-
-import logging
-LEVEL = 15 # More than debug less than info
-logging.addLevelName(LEVEL, "DETAILS")
-
-def details(self, message, *args, **kws):
-    if self.isEnabledFor(LEVEL):
-        self._log(LEVEL, message, args, **kws)
-logging.Logger.details = details
-log = logging.getLogger(__name__)
-log.setLevel(LEVEL-1)
-
-# I need to log things instead of print because of the way multiprocessing
-# works: all the text printed will be hijacked until the end of the script
-# but it's actually of debug benefit to have it in the right place.
-handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
-handler.setFormatter(formatter)
-log.addHandler(handler)
+from simassign.logging import get_log
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
@@ -81,6 +63,7 @@ else:
 
 sciencemask = target_mask_to_int(targetmask)
 
+log = get_log()
 log.details(f"Using {targetmask}")
 log.details(f"sciencemask: {sciencemask}")
 log.details(f"Running with...")
@@ -152,7 +135,8 @@ else:
         # To make sure all priorities etc. are set correctly. Creating it later would
         # overwrite all the history int he MTL.
         tbl_b = Table.read(args.catalog_b)
-        mtl_all_b = initialize_mtl(tbl_b, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id=len(tbl))
+        # We do not need to save this, it just needs to exist in memory for appending later.
+        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id=len(tbl))
 
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)

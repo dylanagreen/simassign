@@ -17,6 +17,8 @@ from multiprocessing import Pool
 from pathlib import Path
 import shutil
 
+from simassign.logging import get_log
+log = get_log()
 mtl_cols = ['RA',
             'DEC',
             'PMRA',
@@ -71,7 +73,7 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
         specifically the QSO target class of desitarget. Defaults to False.
 
    verbose : bool
-        Verbosely print information on each update. Defaults to False.
+        Verbosely log.details information on each update. Defaults to False.
 
     Returns
     -------
@@ -137,7 +139,7 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
             this_target = (mtl_updates["DESI_TARGET"] & bit) != 0
 
             if verbose:
-                print(f"Update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
+                log.details(f"Update loop target {target} {np.any(this_target)} {np.any(was_unobs & this_target)}, {np.any(is_complete & this_target)}")
 
             # lazily assume that the target class is correct and we want more zgood.
             # Do this before is_complete so that is_complete overrides in the
@@ -301,7 +303,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     assert len(tbl) == len(np.unique(tbl["TARGETID"])), "Some non unique targetids"
 
     if "DESI_TARGET" not in tbl.colnames:
-        print("DESI_TARGET not found... setting everything to LAEs")
+        log.details("DESI_TARGET not found... setting everything to LAEs")
         tbl["DESI_TARGET"] = 2**2 # Sets target bit all to LAE if it doesn't exist.
 
     # These two are unused but necessary to exist for mtl
@@ -373,7 +375,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         name = target[0]
         this_target = (tbl["DESI_TARGET"] & bit) != 0
 
-        print(f"Init Target {target} {np.sum(this_target)}")
+        log.details(f"Init Target {target} {np.sum(this_target)}")
 
         # Update to custom target type.
         tbl["TARGET_STATE"] = tbl["TARGET_STATE"].astype("<U15") # So we don't truncate status.
@@ -388,7 +390,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                 for qso_bit in range(len(targetmask["qso_mask"])):
                     this_qso = tbl["QSO_TARGET"] == 2 ** qso_bit
                     mult = targetmask["qso_mask"][qso_bit][-1]["numobs_mult"]
-                    print(f"qso_bit {qso_bit}, mult {mult}, {np.sum(this_qso)}")
+                    log.details(f"qso_bit {qso_bit}, mult {mult}, {np.sum(this_qso)}")
                     tbl["NUMOBS_INIT"][this_qso] *= mult
                     tbl["NUMOBS_MORE"][this_qso] *= mult
 
@@ -398,7 +400,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                 for lbg_bit in range(len(targetmask["lbg_mask"])):
                     this_lbg = tbl["LBG_TARGET"] == 2 ** lbg_bit
                     mult = targetmask["lbg_mask"][lbg_bit][-1]["numobs_mult"]
-                    print(f"lbg_bit {lbg_bit}, mult {mult}, {np.sum(this_lbg)}")
+                    log.details(f"lbg_bit {lbg_bit}, mult {mult}, {np.sum(this_lbg)}")
                     tbl["NUMOBS_INIT"][this_lbg] *= mult
                     tbl["NUMOBS_MORE"][this_lbg] *= mult
 
@@ -412,7 +414,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
         tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
 
-    print(f"{len(pixlist)} HEALpix.")
+    log.details(f"{len(pixlist)} HEALpix.")
 
     if save_dir is not None:
         base_dir = Path(save_dir)
@@ -427,10 +429,11 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
             mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
             # mtl_all[hpx].sort("TARGETID")
 
+            log.details(f"Generated {hpx}")
             fname =  f"mtl-dark-hp-{hpx}.ecsv"
             if save_dir is not None:
                 mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
-                print(f"Saved to {str(hp_base / fname)}")
+                log.details(f"Saved to {str(hp_base / fname)}")
 
     # Want the global MTL sorted on TARGETID too.
     else:
