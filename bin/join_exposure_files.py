@@ -13,6 +13,7 @@ parser.add_argument("exposures_b", type=str, help="later exposure file to join t
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--fix_pass", required=False, action="store_true", help="fix pass numbers in exposures_b to have unique passes.")
 parser.add_argument("--fix_tileids", required=False, action="store_true", help="fix tileids to be unique across the joined file")
+parser.add_argument("--fix_wraparound", required=False, action="store_true", help="fix any tile RA/DEC that is > 360 to below.")
 parser.add_argument("--bstart", required=False, type=str, help="if passed, try and force exposures_b to start on bstart if possible. If bstart is before the end of exposures_a, then defaults to the day after as normal.")
 args = parser.parse_args()
 
@@ -69,6 +70,10 @@ if args.fix_tileids:
             joined["TILEID"][this_pass] = tileids
 
     assert len(np.unique(joined["TILEID"])) == len(joined), "Some non unique tileids!"
+
+if args.fix_wraparound:
+    fix = joined["RA"] >= 360
+    joined["RA"][fix] -= 360
 
 print(joined)
 print(f"{len(joined)} exposures")

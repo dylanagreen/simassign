@@ -322,6 +322,11 @@ def targets_in_tile(targs, tile_center):
     good_dec = np.abs(targs["DEC"] - tile_dec) <= tile_rad
     good_ra = np.abs(targs["RA"] - tile_ra) <= tile_rad
 
+    # Need to make sure we include targets from the wraparound.
+    if (tile_ra - tile_rad) < 0:
+        good_wrap = np.abs(targs["RA"] - (tile_ra + 360)) <= tile_rad
+        good_ra = good_wrap | good_ra
+
     return targs[good_ra & good_dec]
 
 # Generate target files for each of the tiles and save them to
