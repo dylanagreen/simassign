@@ -32,7 +32,7 @@ class TestMTLInits(unittest.TestCase):
                              "OBSCONDITIONS", "NUMOBS", "NUMOBS_INIT", "NUMOBS_MORE",
                              "DESI_TARGET", "BGS_TARGET", "MWS_TARGET", "SCND_TARGET",
                              "Z", "Z_QN", "ZWARN", "IS_QSO_QN", "DELTACHI2",
-                             "HEALPIX", "ZTILEID"]
+                             "HEALPIX", "ZTILEID", "PMRA", "PMDEC", "REF_EPOCH"]
 
         # Using sets because the order does not matter
         self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))
@@ -82,7 +82,7 @@ class TestMTLInits(unittest.TestCase):
                              "OBSCONDITIONS", "NUMOBS", "NUMOBS_INIT", "NUMOBS_MORE",
                              "DESI_TARGET", "BGS_TARGET", "MWS_TARGET", "SCND_TARGET",
                              "Z", "Z_QN", "ZWARN", "IS_QSO_QN", "DELTACHI2",
-                             "HEALPIX", "ZTILEID"]
+                             "HEALPIX", "ZTILEID", "PMRA", "PMDEC", "REF_EPOCH"]
 
         # Using sets because the order does not matter
         self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))
@@ -156,7 +156,7 @@ class TestMTLInits(unittest.TestCase):
                              "OBSCONDITIONS", "NUMOBS", "NUMOBS_INIT", "NUMOBS_MORE",
                              "DESI_TARGET", "BGS_TARGET", "MWS_TARGET", "SCND_TARGET",
                              "Z", "Z_QN", "ZWARN", "IS_QSO_QN", "DELTACHI2",
-                             "HEALPIX", "ZTILEID"]
+                             "HEALPIX", "ZTILEID", "PMRA", "PMDEC", "REF_EPOCH"]
 
         # Using sets because the order does not matter
         self.assertEqual(set(observed_mtl.colnames), set(expected_colnames))

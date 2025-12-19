@@ -300,9 +300,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
 
     assert len(tbl) == len(np.unique(tbl["TARGETID"])), "Some non unique targetids"
 
-    # TODO I'm going to invent my own target bit for this, 2**22 (unused by desitarget). Call it LAE/LBG if you like.
-    # TODO tests indicated that fiberassign hangs indefinitely if you use a non-DESI bit, investigate further...
-    # In order to piggyback off make_mtl we need to use a DESI target type, e.g. QSOs (bit 2, 2**2)
     if "DESI_TARGET" not in tbl.colnames:
         print("DESI_TARGET not found... setting everything to LAEs")
         tbl["DESI_TARGET"] = 2**2 # Sets target bit all to LAE if it doesn't exist.
@@ -416,49 +413,31 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
 
     print(f"{len(pixlist)} HEALpix.")
+
     if save_dir is not None:
         base_dir = Path(save_dir)
         if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
         hp_base = base_dir / "hp" / "main" / "dark"
         hp_base.mkdir(parents=True, exist_ok=True)
 
-        if as_dict:
-            tbl.sort(["HEALPIX", "TARGETID"]) # This will make the next line slightly quicker... I think.
-            mtl_all = {}
-            for hpx in pixlist:
-                mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
-                # mtl_all[hpx].sort("TARGETID")
+    if as_dict:
+        tbl.sort(["HEALPIX", "TARGETID"]) # This will make the next line slightly quicker... I think.
+        mtl_all = {}
+        for hpx in pixlist:
+            mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
+            # mtl_all[hpx].sort("TARGETID")
 
-                fname =  f"mtl-dark-hp-{hpx}.ecsv"
+            fname =  f"mtl-dark-hp-{hpx}.ecsv"
+            if save_dir is not None:
                 mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
                 print(f"Saved to {str(hp_base / fname)}")
 
-        # Want the global MTL sorted on TARGETID too.
-        else:
-            mtl_all.sort("TARGETID")
-            mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
+    # Want the global MTL sorted on TARGETID too.
     else:
-        mtl_all = make_mtl(tbl, "DARK")
-
-        for target in targetmask["desi_mask"]:
-            bit = 2**target[1]
-            name = target[0]
-            this_target = (mtl_all["DESI_TARGET"] & bit) != 0
-
-            # Destiny is ours to choose.
-            mtl_all["TARGET_STATE"][this_target] = f"{name}|UNOBS"
-            mtl_all["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
-            mtl_all["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
-
-            mtl_all["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
-            mtl_all["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
-
-        # Relcaulate this to include the standards in the healpix calculation.
-        theta, phi = np.radians(90 - mtl_all["DEC"]), np.radians(mtl_all["RA"])
-        hpx = hp.ang2pix(nside, theta, phi, nest=True)
-
-        mtl_all["HEALPIX"] = hpx
+        mtl_all = tbl
         mtl_all.sort("TARGETID")
+        if save_dir is not None:
+            mtl_all.write(base_dir / "targets.fits.gz", overwrite=True)
 
     # I suppose you could initialize without a save dir and then not return
     # it so it just gets lost to the ether but why would you do that?
