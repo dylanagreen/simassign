@@ -13,6 +13,7 @@ parser.add_argument("exposures_b", type=str, help="later exposure file to join t
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--fix_pass", required=False, action="store_true", help="fix pass numbers in exposures_b to have unique passes.")
 parser.add_argument("--fix_tileids", required=False, action="store_true", help="fix tileids to be unique across the joined file")
+parser.add_argument("--bstart", required=False, type=str, help="if passed, try and force exposures_b to start on bstart if possible. If bstart is before the end of exposures_a, then defaults to the day after as normal.")
 args = parser.parse_args()
 
 tbl_a = Table.read(args.exposures_a)
@@ -31,6 +32,13 @@ end_a = datetime.fromisoformat(tbl_a["TIMESTAMP"][-1])
 start_b = datetime.fromisoformat(tbl_b["TIMESTAMP"][0])
 print(f"{end_a = }")
 print(f"{start_b = }")
+
+if args.bstart:
+    force_b = datetime.fromisoformat(args.bstart)
+    if force_b > end_a:
+        # Set the end of a to one day before the forced start of b.
+        # end_a is only used to determine when b should start.
+        end_a = force_b - timedelta(days=1)
 
 delta_survey = end_a - start_b + timedelta(days=1)
 
