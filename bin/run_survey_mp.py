@@ -129,14 +129,13 @@ if hp_base.is_dir() and fba_base.is_dir():
 else:
     if args.catalog_b:
         # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
-        # stadards would be duplicated if we did. In the case of catalog b, initialize_mtl
-        # will wipe the mtl_b from disk before creating the main mtl, so this will
-        # exist entirely in memory until it's needed. But we create it first using this function
-        # To make sure all priorities etc. are set correctly. Creating it later would
-        # overwrite all the history int he MTL.
+        # stadards would be duplicated if we did. We create it first mostly just because,
+        # it makes more sense to me to make it in memory at the start of everything.
+        # But we could make the second MTL at the time its supposed to be added if we wanted.
         tbl_b = Table.read(args.catalog_b)
         # We do not need to save this, it just needs to exist in memory for appending later.
-        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc, start_id=len(tbl))
+        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc,
+                                   start_id=len(tbl), timestamp=args.b_start_date)
 
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
