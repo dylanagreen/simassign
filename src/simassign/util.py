@@ -507,7 +507,6 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     else:
         do_process = np.ones(len(mtl), dtype=bool)
 
-
     # This handles determining the unique targets in the file, especually
     # if we want to split them by subtype or not. It also excludes things
     # like standards.
@@ -712,26 +711,26 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
     data_points = np.vstack([data_ra, data_dec]).T
 
     if survey is not None:
-        if type(survey) == list: # Survey is split over multiple polygons, first axis indexes polygons.
-            in_survey = np.zeros(len(tbl), dtype=bool)
-            for i in range(len(survey)):
-                survey_path = mpPath(survey[i])
+        if type(survey) != list:
+            survey = [survey]
+        # Survey is split over multiple polygons, first axis indexes polygons.
+        in_survey = np.zeros(len(tbl), dtype=bool)
+        for i in range(len(survey)):
+            survey_path = mpPath(survey[i])
 
-                # Some polygon wrapped around so we need to wrap some of the targets
-                if np.any(survey[i][:, 0] > 360):
-                    to_rotate = data_ra < np.max(survey[i][:, 0] - 360)
-                    data_points_rotate = np.array(data_points, copy=True)
-                    data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
-                    in_this = survey_path.contains_points(data_points_rotate, radius=trim_rad)
+            # Some polygon wrapped around so we need to wrap some of the targets
+            if np.any(survey[i][:, 0] > 360):
+                to_rotate = data_ra < np.max(survey[i][:, 0] - 360)
+                data_points_rotate = np.array(data_points, copy=True)
+                data_points_rotate[to_rotate] += np.array([360, 0]) # Just add 360 to the lower points
+                in_this = survey_path.contains_points(data_points_rotate, radius=trim_rad)
 
-                else:
-                    in_this = survey_path.contains_points(data_points, radius=trim_rad)
+            else:
+                in_this = survey_path.contains_points(data_points, radius=trim_rad)
 
-                print(np.sum(in_this), f"in survey {i}")
-                in_survey = in_survey | in_this
-        else:
-            survey_path = mpPath(survey)
-            in_survey = survey_path.contains_points(data_points, radius=trim_rad)
+            print(np.sum(in_this), f"in survey {i}")
+            in_survey = in_survey | in_this
+
     else:
         # Radius has to be negative here due to the clockwise/counterclockwise
         # Directionality.
