@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 
-# python generate_tiling_file.py --npass 30 -o /pscratch/sd/d/dylang/fiberassign/ --fourex --collapse
-
 import argparse
 from pathlib import Path
 
 import shutil
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="top level directory of run to purge results from.")
@@ -19,12 +16,12 @@ if (base_dir / "hp").exists():
     shutil.rmtree((base_dir / "hp"))
 if (base_dir / "fba").exists():
     print("Purging Fiber assignment...")
-    shutil.rmtree((base_dir / "fba")) # Purge fiber assignment
+    shutil.rmtree((base_dir / "fba"))
 
 for night_details in base_dir.glob("night*"):
     print(f"Purging {night_details.name}")
-    shutil.rmtree(night_details) # Purge the night details, i.e. target and tile files.
+    shutil.rmtree(night_details) # Purge the night details, i.e. target and tile files per night.
 
 for tiles in base_dir.glob("tiles*fits"):
     print(f"Purging {tiles.name}")
-    tiles.unlink() # Purge the night details, i.e. target and tile files.
+    tiles.unlink() # Purge the remaining tile only files
