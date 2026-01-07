@@ -588,7 +588,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                 nobs_arr[j, ts_idx:] = np.sum(is_done[this_targ])
 
             # This mostly used to determine fractional completeness.
-            if i == 0:
+            # Take the value from the end of the observations to ensure we
+            # catch all targets that were added at a date later than the start
+            # of the MTL.
+            if i == (len(these_timestamps) - 1):
                 num_each_targ[j] = np.sum(this_targ)
 
             # At the zeroth timestamp everything was added so it'll
