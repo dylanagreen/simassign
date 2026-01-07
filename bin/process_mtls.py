@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 
 # Non DESI imports
+from astropy.table import Table
 import fitsio
 import numpy as np
 
@@ -94,7 +95,7 @@ targs = np.concatenate(targs)
 targs = np.unique(targs)
 targs = targs[targs < 2 ** 12] # Not gonna use anything more than bit 12 for this.
 
-# Geenerate the list of all targets to find results for, when splitting on subtype
+# Generate the list of all targets to find results for, when splitting on subtype
 if args.split_subtype:
     all_targs = []
     targs_complete = []
