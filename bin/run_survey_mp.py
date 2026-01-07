@@ -38,7 +38,6 @@ parser.add_argument("-o", "--outdir", required=True, type=str, help="where to sa
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
-parser.add_argument("--fourex", required=False, action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
 parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
@@ -220,6 +219,7 @@ cur_year = tiles["TIMESTAMP_YMD"][0][:4]
 if loaded_from_checkpoint:
     cur_year = last_timestamp[:4]
 
+not_added = True
 log.details(f"Starting year: {cur_year}")
 t2 = time.time()
 with Pool(args.nproc) as p:
@@ -228,7 +228,7 @@ with Pool(args.nproc) as p:
             log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
             continue
         if args.b_start_date:
-            if timestamp == args.b_start_date:
+            if not_added and (timestamp >= args.b_start_date):
                 log.details(f"Adding catalog_b on {timestamp}")
                 hpx_join = mtl_all.keys()
                 concat_params = [(mtl_all[hp], mtl_all_b[hp]) for hp in hpx_join]
@@ -246,6 +246,7 @@ with Pool(args.nproc) as p:
                 pixlist = np.asarray(list(mtl_all.keys()))
                 log.details(f"Updated pixlist len: {len(pixlist)}")
                 del mtl_all_b # Free up some memory, now that those targets are in the main mtl.
+                not_added = False
 
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]
