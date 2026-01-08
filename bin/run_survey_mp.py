@@ -226,6 +226,11 @@ with Pool(args.nproc) as p:
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
         if loaded_from_checkpoint and timestamp <= last_timestamp:
             log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
+
+            # If we are in this block, and enter this if condition, then we haven't yet reached
+            # the checkpointed timestamp but we have passed the time at which the catalog
+            # would be added, meaning the catalog was added in the checkpointed MTLs
+            if timestamp > args.b_start_date: not_added = False
             continue
         if args.b_start_date:
             if not_added and (timestamp >= args.b_start_date):
