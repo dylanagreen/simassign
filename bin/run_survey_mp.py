@@ -126,16 +126,6 @@ if hp_base.is_dir() and fba_base.is_dir():
     loaded_from_checkpoint = True
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
 else:
-    if args.catalog_b:
-        # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
-        # stadards would be duplicated if we did. We create it first mostly just because,
-        # it makes more sense to me to make it in memory at the start of everything.
-        # But we could make the second MTL at the time its supposed to be added if we wanted.
-        tbl_b = Table.read(args.catalog_b)
-        # We do not need to save this, it just needs to exist in memory for appending later.
-        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc,
-                                   start_id=len(tbl), timestamp=args.b_start_date)
-
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
         mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
@@ -143,6 +133,17 @@ else:
         mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
     if args.catalog_b:
+        # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
+        # stadards would be duplicated if we did. We create it first mostly just because,
+        # it makes more sense to me to make it in memory at the start of everything.
+        # But we could make the second MTL at the time its supposed to be added if we wanted.
+        tbl_b = Table.read(args.catalog_b)
+        # We do not need to save this, it just needs to exist in memory for appending later.
+        b_timestamp = args.b_start_date[:4] + "-" + args.b_start_date[4:6] + "-" + args.b_start_date[6:]
+        b_timestamp += "T00:00:01+00:00"
+        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc,
+                                   start_id=len(tbl), timestamp=b_timestamp)
+
         # Generate empty tables for healpixels that are in one catalog but not
         # the other.
         hp_a = list(mtl_all.keys())
@@ -230,7 +231,7 @@ with Pool(args.nproc) as p:
             # If we are in this block, and enter this if condition, then we haven't yet reached
             # the checkpointed timestamp but we have passed the time at which the catalog
             # would be added, meaning the catalog was added in the checkpointed MTLs
-            if timestamp > args.b_start_date: not_added = False
+            if args.b_start_date and (timestamp > args.b_start_date): not_added = False
             continue
         if args.b_start_date:
             if not_added and (timestamp >= args.b_start_date):
