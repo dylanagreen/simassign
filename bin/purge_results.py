@@ -25,3 +25,11 @@ for night_details in base_dir.glob("night*"):
 for tiles in base_dir.glob("tiles*fits"):
     print(f"Purging {tiles.name}")
     tiles.unlink() # Purge the remaining tile only files
+
+for log in base_dir.glob("*log"):
+    print(f"Purging {log.name}")
+    log.unlink()
+
+for processing in (base_dir / "processed").glob("*.npy"):
+    print(f"Purging {processing.name}")
+    processing.unlink()
