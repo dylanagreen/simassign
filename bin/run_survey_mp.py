@@ -165,7 +165,7 @@ tile_rad =  get_tile_radius_deg()
 margin = tile_rad - 0.2
 fba_loc = str(fba_base)
 
-def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
+def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True, design_ha=0):
     params = ["--rundate",
               runtime,
               "--obsdate",
@@ -186,7 +186,9 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
               "--fba_use_fabs",
               "1",
               "--sciencemask",
-              str(sciencemask)
+              str(sciencemask),
+              "--ha",
+              str(design_ha) # Default is zero so this shouldn't change behaviour unless explicitly passed
     ]
 
     fba_file = base_dir / "fba" / f"fba-{str(tileid).zfill(6)}.fits"
@@ -198,6 +200,8 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True):
     # Only update the MTL once this tile is done.
     if tile_done:
         # TODO find a way to do this without having to read (when we run fiberassign without io)
+        # Counterpoint: this makes checkpointing easy since it reloads assigned tiles
+        # whose results didn't get saved to the MTL at the last checkpoint
         # After assigning, load that fiber assignment and return the tids.
         with fitsio.FITS(fba_file) as h:
                 tids = h["FASSIGN"]["TARGETID"][:] # Actually assigned TARGETIDS
@@ -293,7 +297,9 @@ with Pool(args.nproc) as p:
         # Step 2: actually run the fiber assignment, and get back the assigned targetids
         t_start_assign = time.time()
 
-        fiberassign_params = zip(targ_files[good_tile], tile_files[good_tile], tiles_subset["TIMESTAMP"][good_tile], tiles_subset["TILEID"][good_tile], tiles_subset["TILEDONE"][good_tile])
+        fiberassign_params = zip(targ_files[good_tile], tile_files[good_tile], tiles_subset["TIMESTAMP"][good_tile],
+                                 tiles_subset["TILEID"][good_tile], tiles_subset["TILEDONE"][good_tile],
+                                 tiles_subset["DESIGNHA"][good_tile])
         assigned_tids = p.starmap(fiberassign_tile, fiberassign_params)
         assigned_tids = np.concatenate(assigned_tids)
 
