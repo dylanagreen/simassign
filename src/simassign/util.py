@@ -116,7 +116,7 @@ def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
         Declination coordinates of the generated points.
     """
     area = (ramax - ramin) * np.degrees((np.sin(np.radians(decmax)) - np.sin(np.radians(decmin))))
-    n_obj = int(area * density) # density * area
+    n_obj = int(area * density)
 
     ra = rng.uniform(ramin, ramax, size=n_obj)
     dec = rng.uniform(decmin, decmax, size=n_obj)

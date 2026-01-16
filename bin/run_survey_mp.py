@@ -40,6 +40,7 @@ parser.add_argument("--stds", required=False, type=str, help="base location of s
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
+parser.add_argument("--resetmtl", required=False, action="store_true", help="reset the mtl every other night for reassignment tests.")
 parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
 parser.add_argument("--b_start_date", type=str, help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
 
@@ -322,8 +323,8 @@ with Pool(args.nproc) as p:
         times["get_last_time"].append(t_mid - t3)
         update_params = [(mtl_all[hpx], assigned_tids, targetmask, last_time, False) for hpx in hpx_night]
         updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as hpx_night
-        for i, hpx in enumerate(hpx_night):
-            mtl_all[hpx] = updated_tbls[i]
+        for j, hpx in enumerate(hpx_night):
+            mtl_all[hpx] = updated_tbls[j]
         t4 = time.time()
         times["update_mtl"].append(t4 - t3)
         log.details(f"MTL update took {t4 - t3} seconds...")
@@ -344,6 +345,10 @@ with Pool(args.nproc) as p:
         log.details(f"Saving MTL took {t5 - t4} seconds...")
 
         cur_year = night_year
+
+        if args.resetmtl and (i % 2) == 1:
+            log.details(f"Resetting MTL after Night {i}")
+            mtl_all = initialize_mtl(tbl, None, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
     t4 = time.time()
     log.details(f"Saving at conclusion...")

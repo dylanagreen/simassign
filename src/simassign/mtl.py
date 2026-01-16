@@ -148,7 +148,7 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
                 pass
             else:
                 mtl_updates["PRIORITY"][this_target & was_unobs] = targetmask["priorities"]["desi_mask"][name]["MORE_ZGOOD"]
-                mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U15") # So we don't truncate status.
+                mtl_updates["TARGET_STATE"] = mtl_updates["TARGET_STATE"].astype("<U16") # So we don't truncate status.
 
                 # TODO status from the target yaml instead of hard coded.
                 mtl_updates["TARGET_STATE"][this_target & was_unobs] = f"{name}|MORE_ZGOOD"
