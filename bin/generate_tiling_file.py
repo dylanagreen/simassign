@@ -46,6 +46,8 @@ group_pass.add_argument("--npass", type=int, help="number of assignment passes t
 group_pass.add_argument("--ntiles", type=int, help="target number of tiles to achieve, using as many passes as possible to get there.")
 args = parser.parse_args()
 
+if args.stripes:
+    assert args.ntiles, "If generating stripe tiles only total number of tiles is supported (not number of passes)"
 
 def add_tile_cols(tiles):
     tile_tbl = Table(tiles)
@@ -80,8 +82,9 @@ if args.survey is not None:
         survey = np.load(args.survey, allow_pickle=True)
         survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
 
+
 if args.stripes:
-    base_tiles = generate_stripe_tiles()
+    tiles = generate_stripe_tiles(survey, args.ntiles)
 else:
     # Load the geometry superset to get the tiling of the entire sky.
     tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
@@ -92,41 +95,32 @@ else:
     dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
     base_tiles = tiles[zero_pass & dark_tile]
 
-in_survey = check_in_survey_area(base_tiles, survey, trim_rad=trim_rad)
-n_base = np.sum(in_survey)
-# Use this to get all tiles that touch the given zone, not just ones that only
-# have a center that falls inside the zone.
-tile_rad =  get_tile_radius_deg()
-margin = tile_rad - 0.4
+    in_survey = check_in_survey_area(base_tiles, survey, trim_rad=trim_rad)
+    n_base = np.sum(in_survey)
+    # Use this to get all tiles that touch the given zone, not just ones that only
+    # have a center that falls inside the zone.
+    tile_rad =  get_tile_radius_deg()
+    margin = tile_rad - 0.4
 
-pass_tilings = []
+    pass_tilings = []
 
-if args.npass:
-    if args.twoex: max_pass = (args.npass + 1) // 2
-    else: max_pass = args.npass + 1
-else:
-    print("n_base", n_base)
-    max_pass = args.ntiles // n_base + 1 # Add one because we iterate from 1 upwards.
-    print("max_pass", max_pass)
-    print(args.ntiles)
-    print("pred tiles", max_pass * n_base)
-    if not args.stripes: max_pass += 1
-
-
-if args.stripes:
-    all_stripes = shift_stripes(max_pass, base_tiles)
-
-cur_tiles = 0
-for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
-    print(f"Generating tiling for pass {i}...")
-    if args.stripes:
-        tiles = add_tile_cols(all_stripes[i - 1])
-        tiles["PASS"] = i
-
-        tileids = np.arange(len(tiles)) + i * 10000
-        tiles["TILEID"] = tileids
-
+    # Use npass as the max_pass, otherwise try estimate how many passes
+    # we will need
+    if args.npass:
+        if args.twoex: max_pass = (args.npass + 1) // 2
+        else: max_pass = args.npass + 1
     else:
+        print("n_base", n_base)
+        max_pass = args.ntiles // n_base + 1 # Add one because we iterate from 1 upwards.
+        print("max_pass", max_pass)
+        print(args.ntiles)
+        print("pred tiles", max_pass * n_base)
+        if not args.stripes: max_pass += 1
+
+    cur_tiles = 0
+    for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
+        print(f"Generating tiling for pass {i}...")
+
         if args.fourex: # Repeat each tiling four times before moving to the next one
             passnum = (i + 3) // 4
         elif args.twoex:
@@ -136,38 +130,39 @@ for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
         print("PASSNUM", passnum)
         tiles = rotate_tiling(base_tiles, passnum)
 
-    # IF we're not collapsing but we are doing 4x, give each "pass" a unique
-    # tileid, so that we keep all four passes on joins.
-    if (args.fourex or args.twoex) and not args.collapse:
-        tileids = np.arange(len(tiles)) + i * 10000
-        tiles["TILEID"] = tileids
+        # IF we're not collapsing but we are doing 4x, give each "pass" a unique
+        # tileid, so that we keep all four passes on joins.
+        if (args.fourex or args.twoex) and not args.collapse:
+            tileids = np.arange(len(tiles)) + i * 10000
+            tiles["TILEID"] = tileids
 
-    # Booleans for determining which tiles to keep.
-    # Margin makes sure we don't end up with tiles that are "in bounds"
-    # but because of the circular shape are off the corner of the
-    # region and don't actually cover any of the targets (which crashes fiberassign)
-    if (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
-        # Only run this if the box is actually passed in.
-        tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-        tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-        not_in_zone = ~(tiles_in_ra & tiles_in_dec)
-        tiles["IN_DESI"][not_in_zone] = False
+        # Booleans for determining which tiles to keep.
+        # Margin makes sure we don't end up with tiles that are "in bounds"
+        # but because of the circular shape are off the corner of the
+        # region and don't actually cover any of the targets (which crashes fiberassign)
+        if (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
+            # Only run this if the box is actually passed in.
+            tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
+            tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
+            not_in_zone = ~(tiles_in_ra & tiles_in_dec)
+            tiles["IN_DESI"][not_in_zone] = False
 
-    if args.trim:
-        in_survey = check_in_survey_area(tiles, survey, trim_rad=trim_rad)
-        tiles["IN_DESI"] = False
-        tiles["IN_DESI"][in_survey] = True
+        if args.trim:
+            in_survey = check_in_survey_area(tiles, survey, trim_rad=trim_rad)
+            tiles["IN_DESI"] = False
+            tiles["IN_DESI"][in_survey] = True
 
-    cur_tiles += np.sum(tiles["IN_DESI"])
+        cur_tiles += np.sum(tiles["IN_DESI"])
 
-    # IF we're still below our requested target number of tiles, add this pass.
-    # We do this by pass because we don't want to do any incomplete passes.
-    if args.ntiles and (cur_tiles > args.ntiles):
-        break
-    else:
-        pass_tilings.append(tiles)
+        # IF we're still below our requested target number of tiles, add this pass.
+        # We do this by pass because we don't want to do any incomplete passes.
+        if args.ntiles and (cur_tiles > args.ntiles):
+            break
+        else:
+            pass_tilings.append(tiles)
 
-tiles = vstack(pass_tilings)
+    tiles = vstack(pass_tilings)
+
 tiles = add_tile_cols(tiles)
 if args.collapse:
     tiles = unique(tiles, "TILEID")

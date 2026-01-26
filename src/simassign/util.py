@@ -793,68 +793,156 @@ def check_in_tile_area(targs, tiles, nside=256):
 
     return np.isin(hpx_targs, hpx_tiles)
 
-
-def generate_stripe_tiles( delta=get_tile_radius_deg() * np.sqrt(2)):
+def get_survey_left_edge(srvy):
     # TODO docstring
+    # Left defined as lower right ascension
+    srvy_sorted_ra = srvy[np.argsort(srvy[:, 0])]
+    ra_diff = np.diff(srvy_sorted_ra[:, 0])
+    max_width = np.max(srvy_sorted_ra[:, 0]) - np.min(srvy_sorted_ra[:, 0])
 
-    # Generate the right ascension centers along the equator
-    ra_centers_dec0 = np.arange(0, 360, delta)
-    centers_radec = list(zip(ra_centers_dec0, np.zeros_like(ra_centers_dec0)))
+    left_edge = []
+    # Whether we are curving "down" in declination by proceeding along the edge
+    # in right ascension or "up"
+    going_down = (srvy_sorted_ra[0, 1] - srvy_sorted_ra[1, 1]) > 0
+    left_edge.append(srvy_sorted_ra[0, :])
 
-    # Will use a numpy rec array to store this, so we can denote column
-    # and row numbers. We will use those to offset tiles from each other slightly
-    # sot that the tile gaps don't line up in stripes.
-    centers = np.array(centers_radec, dtype=[("RA", "<f8"), ("DEC", "<f8")])
-    centers = centers.view(np.recarray)
-    centers = np.lib.recfunctions.append_fields(centers, "ROW", np.zeros_like(ra_centers_dec0))
-    centers = np.lib.recfunctions.append_fields(centers, "COL", np.arange(len(ra_centers_dec0)))
+    # As long as the next declination as we proceed along right ascension
+    # is goibg in the same direction as the first step, we consider this the left edge.
+    # Once we "flip" to the other side this won't be true anymore.
+    direction_match = True
+    i = 1
+    while direction_match:
+        left_edge.append(srvy_sorted_ra[i, :])
+        direction_match = going_down == ((srvy_sorted_ra[i, 1] - srvy_sorted_ra[i + 1, 1]) > 0)
 
-    dec_deltas = np.arange(0, 90, delta)
-    dec_deltas = dec_deltas[1:]
+        # For surveys with very large gaps between the left and right
+        # edge this cut ensures the corner point of the opposite edge does not
+        # get added to the left edge
+        direction_match &= (ra_diff[i] < max_width / 2)
+        i += 1
+    # print(mean_diff)
+    return np.array(left_edge)
 
-    # Generate all of the individual rows in the stripe tiling, iterating
-    # by how much the declination changes at each row.
-    rows = [centers]
-    for i, d in enumerate(dec_deltas):
-        new_centers = np.array(centers, copy=True)
-        new_centers["DEC"] += d
-        new_centers["ROW"] = i + 1
-        rows.append(new_centers)
-
-        new_centers = np.array(centers, copy=True)
-        new_centers["DEC"] -= d
-        new_centers["ROW"] = -(i + 1)
-        rows.append(new_centers)
-
-    final_centers = np.hstack(rows)
-
-    # Dithering rows and columns relative to each other to avoid lining up
-    # the tileg aps.
-    dither_rows = (final_centers["ROW"] % 2) == 0
-    final_centers["RA"][dither_rows] += 0.05
-
-    dither_cols = (final_centers["COL"] % 2) == 0
-    final_centers["DEC"][dither_cols] += 0.05
-
-    return final_centers
-
-def shift_stripes(num_shifts, tile_centers):
+def get_stripe_bounds(srvy, delta_dec=2.7):
     # TODO docstring
-    max_shift = np.sqrt(2)
-    # Start and end are the max shift, which are the same base tiling, due to
-    # symmetry. We will discard the end, but keep the beginning so that this
-    # function returns all shifts from 0 up to num_shifts
-    shifts = get_tile_radius_deg() * np.linspace(0, max_shift, num_shifts + 2)
-    shifts = shifts[:-1]
+    tile_rad = get_tile_radius_deg()
 
-    out_centers = []
-    for s in shifts:
-        cur_centers = np.array(tile_centers, copy=True)
-        cur_centers["RA"] += s
-        cur_centers["DEC"] += s
-        out_centers.append(cur_centers)
+    left_edge = get_survey_left_edge(srvy)
+    right_edge = srvy[~np.isin(srvy, left_edge)].reshape(-1, 2)
 
-    return out_centers
+    # Sort to go from top to bottom.
+    left_edge = left_edge[np.argsort(left_edge[:, 1])]
+    right_edge = right_edge[np.argsort(right_edge[:, 1])]
+
+    bottom_left = left_edge[0, :]
+    top_left = left_edge[-1, :]
+
+    # Shift the top left so that the original top
+    # left would lie on the edge of the tile
+    top_left = top_left + np.array([tile_rad, -tile_rad]) / np.sqrt(2)
+
+    # Decs down by delta dec from the top to the bottom
+    decs = np.arange(top_left[1], bottom_left[1], -delta_dec)
+    ras_left = np.interp(decs, left_edge[:, 1], left_edge[:, 0])
+    ras_right = np.interp(decs, right_edge[:, 1], right_edge[:, 0])
+
+    # This is the shift necessary so that the corner will be
+    # on the edge of the tile circle.
+    ras_left += tile_rad / np.sqrt(2)
+    ras_right -= tile_rad / np.sqrt(2)
+
+    # To tile for a total number of tiles we need to accumulate
+    # the total "effective" width of all the rows. The "width"
+    # of a row is delta_ra * cos(dec), and we sum this up
+    # over all the rows. Units of cos_decs are irrelevant
+    # because when we actually add the tile centers we will divide out
+    # the cos_decs value again, so changing the units is tantamount tto
+    # adding a multiplicative factor that gets taken out.
+    total_width = 0
+    cos_decs = np.cos(np.deg2rad(decs))
+    for i in range(len(decs)):
+        total_width += (ras_right[i] - ras_left[i]) * cos_decs[i]
+
+    return decs, ras_left, ras_right, total_width
+
+def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_tiles=2500, dec_offset=0.02):
+    cos_decs = np.cos(np.deg2rad(decs))
+
+    # Delta_ra is then the total (effective) width divided by the number
+    # of tiles we want to place in the area. This is the rough spacing
+    # between tiles that wouldl cover the area if every row was placed end to end.
+    # We subtract len(decs) from num_tiles to account for the fact that
+    # Each edge has a tile that we want to consider "unique".
+    # I.e. to place two tiles between two edge tiles for four total tites
+    # we would generate 3 "gaps", to account for the edges being defined,
+    # rather than 4.
+    delta_ra = total_width / (num_tiles - len(decs))
+
+    n_tot = 0
+
+    all_centers = []
+    row_num = []
+    for i, dec in enumerate(decs):
+        # At each row we will take the width of the row,
+        # and place the tile centers such that the tiles
+        # defined at each edge define the tiling of the row.
+        # This ensures overlap at each survey edge is the same,
+        # but may slightly shift the inner coverage (although with
+        # the number of tiles we're considering this should be a small
+        # to negligable effect). The effect would mostly
+        # affect where two rows overlap anyway.
+        width_row = (ras_right[i] - ras_left[i])
+
+        # Add one to account for left edge already being defined
+        # as n_row would determine the number of "gaps" from
+        # the first tile to the last tile in the row.
+        n_row = int(width_row // (delta_ra / cos_decs[i])) + 1
+        n_tot += n_row
+        # ras_at_dec = np.arange(ras_left[i], ras_right[i], delta_ra / cos_decs[i])
+        # Linspace generates the requested number of tiles in the row, including the two
+        # edges. By construction the delta_ra of this row will be slightly larger than
+        # delta_ra / cos_dec.
+        ras_at_dec = np.linspace(ras_left[i], ras_right[i], n_row)
+        print(n_row, len(ras_at_dec), np.diff(ras_at_dec)[0], delta_ra, delta_ra / cos_decs[i])
+        for j, ra in enumerate(ras_at_dec):
+            shift = (j % 5) - 3 # Ranges from -2 to + 2
+            all_centers.append([ra, dec + shift * dec_offset])
+            row_num.append(i)
+
+    all_centers = np.asarray(all_centers)
+    return all_centers, row_num
+
+def generate_stripe_tiles(srvys, num_tiles=2500):
+    decs = []
+    ras_left = []
+    ras_right = []
+    total_width = 0
+    for srvy in srvys:
+        decs_srvy, ras_left_srvy, ras_right_srvy, total_width_srvy = get_stripe_bounds(srvy)
+        decs.append(decs_srvy)
+        ras_left.append(ras_left_srvy)
+        ras_right.append(ras_right_srvy)
+        total_width += total_width_srvy
+
+    decs = np.concatenate(decs)
+    ras_right = np.concatenate(ras_right)
+    ras_left = np.concatenate(ras_left)
+
+    all_centers, row_num = get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_tiles)
+
+    # Some barebones tile file requirements
+    tiles = Table(all_centers)
+    tiles.rename_columns(["col0", "col1"], ["RA", "DEC"])
+    tiles["IN_DESI"] = True
+    tiles["PASS"] = row_num
+
+    tiles["TILEID"] = 0
+    for p in np.unique(tiles["PASS"]):
+        this_pass = tiles["PASS"] == p
+        if np.sum(this_pass):
+            tileids = np.arange(np.sum(this_pass)) + p * 10000
+            tiles["TILEID"][this_pass] = tileids
+    return tiles
 
 def target_mask_to_int(targetmask):
     """

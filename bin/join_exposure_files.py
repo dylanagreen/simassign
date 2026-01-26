@@ -31,8 +31,8 @@ tbl_b.sort("TIMESTAMP")
 # to start after tbl_a, if that's not true already.
 end_a = datetime.fromisoformat(tbl_a["TIMESTAMP"][-1])
 start_b = datetime.fromisoformat(tbl_b["TIMESTAMP"][0])
-print(f"{end_a = }")
-print(f"{start_b = }")
+print(f"{end_a = }", tbl_a["TIMESTAMP"][-1])
+print(f"{start_b = }", tbl_b["TIMESTAMP"][0])
 
 if args.bstart:
     force_b = datetime.fromisoformat(args.bstart)
