@@ -828,7 +828,10 @@ def get_stripe_bounds(srvy, delta_dec=2.7):
     tile_rad = get_tile_radius_deg()
 
     left_edge = get_survey_left_edge(srvy)
-    right_edge = srvy[~np.isin(srvy, left_edge)].reshape(-1, 2)
+
+    # Evil broadcasting hacking courtsey of some stack overflow post from somewhere.
+    is_in = np.any(np.all(srvy == left_edge[:, None], axis=2), axis=0)
+    right_edge = srvy[~is_in].reshape(-1, 2)
 
     # Sort to go from top to bottom.
     left_edge = left_edge[np.argsort(left_edge[:, 1])]
@@ -840,9 +843,22 @@ def get_stripe_bounds(srvy, delta_dec=2.7):
     # Shift the top left so that the original top
     # left would lie on the edge of the tile
     top_left = top_left + np.array([tile_rad, -tile_rad]) / np.sqrt(2)
+    bottom_left = bottom_left + np.array([tile_rad, tile_rad]) / np.sqrt(2)
 
-    # Decs down by delta dec from the top to the bottom
-    decs = np.arange(top_left[1], bottom_left[1], -delta_dec)
+    # Finding the number that fits and using linspace has
+    # the effect of "nudging" rows slightly further or closer
+    # to keep approximately the same tile overlap off the edges
+    # of the footprint. If the default spacing would leave a strip
+    # of unobservable objects at the bottom of the survey, for instance,
+    # this will nudge the rows to be slightly further
+    # apart to try cover the entirety of the footprint.
+    # As long as delta_dec < tile_diameter this should be a small
+    # effect
+    num_dec = int(np.round((top_left[1] - bottom_left[1]) / delta_dec))
+    decs = np.linspace(top_left[1], bottom_left[1], num_dec)
+
+    # # Decs down by delta dec from the top to the bottom
+    # decs = np.arange(top_left[1], bottom_left[1], -delta_dec)
     ras_left = np.interp(decs, left_edge[:, 1], left_edge[:, 0])
     ras_right = np.interp(decs, right_edge[:, 1], right_edge[:, 0])
 
@@ -910,6 +926,7 @@ def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_ti
             row_num.append(i)
 
     all_centers = np.asarray(all_centers)
+    row_num = np.asarray(row_num)
     return all_centers, row_num
 
 def generate_stripe_tiles(srvys, num_tiles=2500):
@@ -934,7 +951,7 @@ def generate_stripe_tiles(srvys, num_tiles=2500):
     tiles = Table(all_centers)
     tiles.rename_columns(["col0", "col1"], ["RA", "DEC"])
     tiles["IN_DESI"] = True
-    tiles["PASS"] = row_num
+    tiles["PASS"] = row_num + 1
 
     tiles["TILEID"] = 0
     for p in np.unique(tiles["PASS"]):
@@ -942,6 +959,11 @@ def generate_stripe_tiles(srvys, num_tiles=2500):
         if np.sum(this_pass):
             tileids = np.arange(np.sum(this_pass)) + p * 10000
             tiles["TILEID"][this_pass] = tileids
+
+    # Survey bounds are contiguous but might span over
+    # the turnover, this just shifts all RA to be <= 360
+    shift = tiles["RA"] > 360
+    tiles["RA"][shift] -= 360
     return tiles
 
 def target_mask_to_int(targetmask):
