@@ -47,17 +47,7 @@ def tiles_from_file(fname):
             return len(h[1][:])
 
 def process_fba_for_counts(fba_all):
-    all_tids = np.unique(np.concatenate([np.unique(v["TARGETID"]) for v in fba_all.values()]))
-    all_counts = np.zeros_like(all_tids)
-    print("All tids done")
-
-    for k, v in fba_all.items():
-        these_tids, counts = np.unique(v["TARGETID"], return_counts=True)
-
-        # Since both all_tids and these_tids are both sorted, if all_tids are
-        # in these_tids, they correspond with the correct value. e.g. the first
-        # "TRUE" in all_tids must correspnd with the first tid in these_tids,
-        all_counts[np.isin(all_tids, these_tids)] += counts
+    all_tids, all_counts = np.unique(np.concatenate([v["TARGETID"] for v in fba_all.values()]), return_counts=True)
 
     tid_data = {"TARGETID": all_tids, "POSSIBLE": all_counts}
     return Table(tid_data)
@@ -72,7 +62,6 @@ if args.account_for_avail:
     t_end = time.time()
     print(f"Loading fba files took {t_end - t_start} seconds...")
 
-    # TODO processing is very slow.
     t_start = time.time()
     tid_counts = process_fba_for_counts(fba_all)
     t_end = time.time()
@@ -156,12 +145,17 @@ if args.nobs:
     mtl_vals = list(mtl_all.values())
     del mtl_all
 
+    # TODO split up by target type instead of just splitting the MTLs.
+    # I think in theory this would be a better use of memory management but we'd
+    # probably take a hit on time since we'd have to run over the MTLs multiple times.
     if len(timestamps) > 1000: # We will need to split for memory purposes.
-        split_idx = len(mtl_vals) // 2
+        split_idx = len(mtl_vals) // 3
 
-        splits = [mtl_vals[:split_idx], mtl_vals[split_idx:]]
+        splits = [mtl_vals[:split_idx], mtl_vals[split_idx:(split_idx * 2)], mtl_vals[(split_idx * 2):]]
     else:
         splits = [mtl_vals]
+
+    del mtl_vals # Free up memory because these mtls are now split into the arrays.
 
     nobs = np.zeros((len(targs), len(timestamps), len(timestamps)))
     at_least = np.zeros_like(nobs)
