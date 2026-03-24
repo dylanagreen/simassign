@@ -1,6 +1,3 @@
-# python trim_catalog_to_survey.py /pscratch/sd/d/dylang/fiberassign/tiles-50pass-superset.ecsv -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/tiles-50pass-5000deg-superset.ecsv --tiles
-
-# python trim_catalog_to_survey.py /pscratch/sd/d/dylang/fiberassign/lya-colore-lae.fits -o /global/cfs/cdirs/desi/users/dylang/fiberassign_desi2/lya-colore-lae-density1975-area5000.fits --matchdensity 1975
 import argparse
 from pathlib import Path
 

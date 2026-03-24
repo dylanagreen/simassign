@@ -70,27 +70,27 @@ unique_per_night.write(args.out, overwrite=True)
 print(len(np.unique(tbl["TILEID"])))
 
 
-npass = np.max(tiles_tbl["PASS"])
-print(f"max pass: {npass}")
-is_dark = tiles_tbl["PROGRAM"] == "DARK"
-tiles_per_pass = np.bincount(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark], minlength=npass)
+# npass = np.max(tiles_tbl["PASS"])
+# print(f"max pass: {npass}")
+# is_dark = tiles_tbl["PROGRAM"] == "DARK"
+# tiles_per_pass = np.bincount(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark], minlength=npass)
 
-# print(np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark]))
+# # print(np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"] & is_dark]))
 
-is_dark = joined["PROGRAM"] == "DARK"
-# print(np.unique(unique(joined[is_dark], "TILEID")["PASS"]))
-finished_per_pass = np.bincount(unique(joined[is_dark], "TILEID")["PASS"], minlength=npass)
+# is_dark = joined["PROGRAM"] == "DARK"
+# # print(np.unique(unique(joined[is_dark], "TILEID")["PASS"]))
+# finished_per_pass = np.bincount(unique(joined[is_dark], "TILEID")["PASS"], minlength=npass)
 
-# print(np.unique(joined["PASS"]), np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]]))
-frac_done = finished_per_pass / tiles_per_pass
-fix, ax = plt.subplots(figsize=(8, 4))
-plt.plot(np.arange(npass + 1) , frac_done)
-ax.grid(alpha=0.5)
+# # print(np.unique(joined["PASS"]), np.unique(tiles_tbl["PASS"][tiles_tbl["IN_DESI"]]))
+# frac_done = finished_per_pass / tiles_per_pass
+# fix, ax = plt.subplots(figsize=(8, 4))
+# plt.plot(np.arange(npass + 1) , frac_done)
+# ax.grid(alpha=0.5)
 
-mean_completion = np.nanmean(frac_done)
-ax.axhline(mean_completion, c="r")
-print(mean_completion, mean_completion * npass)
+# mean_completion = np.nanmean(frac_done)
+# ax.axhline(mean_completion, c="r")
+# print(mean_completion, mean_completion * npass)
 
-ax.set(xlabel="Pass Number", ylabel="Fraction of Tiles in Pass Observed")
+# ax.set(xlabel="Pass Number", ylabel="Fraction of Tiles in Pass Observed")
 
-plt.savefig("finished.jpg", bbox_inches="tight", dpi=256)
+# plt.savefig("finished.jpg", bbox_inches="tight", dpi=256)

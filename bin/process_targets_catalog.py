@@ -13,7 +13,7 @@ from astropy.table import Table, vstack, unique
 from simassign.mtl import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-o", "--out", required=True, type=str, help="where to save the mtl* and fba* output files.")
+parser.add_argument("-o", "--out", required=True, type=str, help="where to save the output catalog.")
 parser.add_argument("--laes", type=str, help="A catalog of laes to use for fiber assignment.")
 parser.add_argument("--lbgs", type=str, help="A catalog of lbgs to use for fiber assignment.")
 parser.add_argument("--qsos", type=str, help="A catalog of qsos to use for fiber assignment.")
