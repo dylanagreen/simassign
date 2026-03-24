@@ -43,6 +43,7 @@ parser.add_argument("--danger", required=False, action="store_true", help="you w
 parser.add_argument("--resetmtl", required=False, action="store_true", help="reset the mtl every other night for reassignment tests.")
 parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
 parser.add_argument("--b_start_date", type=str, help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
+parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
 
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignment.")
@@ -76,7 +77,7 @@ if args.danger:
     log.details("=" * 9)
 
 # Generate the random targets
-rng = np.random.default_rng(91701)
+rng = np.random.default_rng(args.seed)
 if args.density:
     ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
 
@@ -117,7 +118,7 @@ loaded_from_checkpoint = False
 # Check for healpixels AND fiber assignments, if there's only the former the
 # script may have interrupted when the catalog was still being generated, and
 # we may attempt an incomplete checkpoint load.
-if hp_base.is_dir() and fba_base.is_dir():
+if hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
     mtl_all = load_mtl_all(hp_base, as_dict=True, nproc=args.nproc)
     last_timestamp = np.sort([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all.values()])[-1]
@@ -129,9 +130,9 @@ if hp_base.is_dir() and fba_base.is_dir():
 else:
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
-        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
+        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng)
     else:
-        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc)
+        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng)
 
     if args.catalog_b:
         # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
@@ -143,7 +144,7 @@ else:
         b_timestamp = args.b_start_date[:4] + "-" + args.b_start_date[4:6] + "-" + args.b_start_date[6:]
         b_timestamp += "T00:00:01+00:00"
         mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc,
-                                   start_id=len(tbl), timestamp=b_timestamp)
+                                   start_id=len(tbl), timestamp=b_timestamp, rng=rng)
 
         # Generate empty tables for healpixels that are in one catalog but not
         # the other.
@@ -290,6 +291,8 @@ with Pool(args.nproc) as p:
         good_tile = np.where(ntargs_on_tile > 0)
 
         log.details(f"Good tile: {good_tile}, {ntargs_on_tile}")
+        log.details(np.array(tiles_subset["TILEID"][good_tile]))
+        log.details(tiles_subset[ntargs_on_tile == 0])
 
         # Worthwhile to keep this for summary plot purposes
         tile_loc = base_dir / f"tiles-{timestamp}.fits"

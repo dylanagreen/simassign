@@ -222,7 +222,7 @@ def load_target_yaml(fname):
 
 def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                    as_dict=False, targetmask=None, nproc=1, start_id=0,
-                   timestamp="2024-12-30T00:00:00+00:00"):
+                   timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701)):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -321,7 +321,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["PRIORITY_INIT"] = 3400
     tbl["PRIORITY"] = 3400
 
-    rng = np.random.default_rng(100921)
     tbl["SUBPRIORITY"] = rng.uniform(size=len(tbl))
 
     nside = 64
@@ -332,6 +331,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
 
     using_qso_target = "QSO_TARGET" in tbl.colnames
     using_lbg_target = "LBG_TARGET" in tbl.colnames
+    using_xlg_target = "XLG_TARGET" in tbl.colnames
     if stds_tbl is not None:
         theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
         hpx = hp.ang2pix(nside, theta, phi, nest=True)
@@ -343,6 +343,8 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
             stds_tbl["QSO_TARGET"] = 0
         if using_lbg_target:
             stds_tbl["LBG_TARGET"] = 0
+        if using_xlg_target:
+            stds_tbl["XLG_TARGET"] = 0
         tbl = vstack([stds_tbl[keep_stds][keep_cols], tbl])
 
     if targetmask is None:
@@ -384,6 +386,10 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         tbl["NUMOBS_INIT"][this_target] = targetmask["numobs"]["desi_mask"][name]
         tbl["NUMOBS_MORE"][this_target] = targetmask["numobs"]["desi_mask"][name]
 
+        tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+        tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
+
+        # TODO make these sub target bits more general.
         # Adjusting num obs for high z qsos.
         if using_qso_target:
             if name == "QSO":
@@ -394,7 +400,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                     tbl["NUMOBS_INIT"][this_qso] *= mult
                     tbl["NUMOBS_MORE"][this_qso] *= mult
 
-                # Adjusting num obs for high z qsos.
         if using_lbg_target:
             if name == "LBG":
                 for lbg_bit in range(len(targetmask["lbg_mask"])):
@@ -404,15 +409,21 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                     tbl["NUMOBS_INIT"][this_lbg] *= mult
                     tbl["NUMOBS_MORE"][this_lbg] *= mult
 
+        if using_xlg_target:
+            if name == "XLG":
+                for xlg_bit in range(len(targetmask["xlg_mask"])):
+                    this_xlg = tbl["XLG_TARGET"] == 2 ** xlg_bit
+                    mult = targetmask["xlg_mask"][xlg_bit][-1]["priority_mult"]
+                    log.details(f"xlg_bit {xlg_bit}, mult {mult}, {np.sum(this_xlg)}")
+                    tbl["PRIORITY_INIT"][this_xlg & this_target] = (tbl["PRIORITY_INIT"][this_xlg & this_target] * mult).astype(int)
+                    tbl["PRIORITY"][this_xlg & this_target] = (tbl["PRIORITY"][this_xlg & this_target] * mult).astype(int)
+
         # Make sure the obsoncditions are set right
         obscond = target[-1]["obsconditions"]
         obscond = obscond.split("|")
         for oc in targetmask["obsconditions"]:
             if oc[0] in obscond: # 0 is the name, 1 is the bit
                 tbl["OBSCONDITIONS"][this_target] += (2**oc[1])
-
-        tbl["PRIORITY"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
-        tbl["PRIORITY_INIT"][this_target] = targetmask["priorities"]["desi_mask"][name]["UNOBS"]
 
     log.details(f"{len(pixlist)} HEALpix.")
 
