@@ -38,11 +38,18 @@ def get_tile_distances(tileid, tile_tbl):
     # Get the distances of all tiles to the tile given by tileid
     row = tile_tbl[tile_tbl["TILEID"] == tileid]
     tile_ra, tile_dec = row["RA"][0], row["DEC"][0]
-    center = np.array([tile_ra, tile_dec])
 
-    tile_centers = np.vstack([tile_tbl["RA"], tile_tbl["DEC"]]).T
-    diff = tile_centers - center
-    return np.linalg.norm(diff, axis=1)
+    center = np.array([tile_ra, tile_dec])
+    center = np.deg2rad(center)
+    tile_ras = np.deg2rad(tile_tbl["RA"])
+    tile_decs = np.deg2rad(tile_tbl["DEC"])
+
+    # This properly accounts for the curvatue of the sky and shouldn't be
+    # much slower than the previous simple euclidean distance version.
+    theta = np.sin(tile_decs) * np.sin(center[1]) + np.cos(tile_decs) * np.cos(center[1]) * np.cos(tile_ras - center[0])
+    theta = np.arccos(theta)
+    # In hindsight, I probably should have used astropy to do this.
+    return np.rad2deg(theta)
 
 # Use these two variables to determine distance from first tile of the night
 # to all other tiles and determine which to "observe"
