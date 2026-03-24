@@ -7,37 +7,41 @@
 
 ## How it Works
 
-`simassign` is a package of code, but most of the package functions are designed to support a set of scripts included in bin/.
-The general code flow of the scripts is outlined below.
+`simassign` is both a package of helper functions and a selection of scripts. The main processing script is `run_survey_mp.py`, which will run and simulate a survey using python multiprocessing for the fiberassignment. `simassign` tries to accurately mimic the true survey loop as accurately as possible, which means that it takes the input catalog of objects and generates a true merged targeting ledger (MTL) which is updated every "day" with the results of the previous "night"'s fiberassignment[^1].
 
-### 1. Generate a Tiling File
-First you want to generate a tiling file:
-```
-python generate_tiling_file.py --npass 20 -o tiles-desi2-20pass-offset-tiles-5000deg-superset.ecsv --trim [--fourex] [--collapse]
-```
+`run_survey_mp` requires only three things to fully simulate a survey:
+1. A file of exposures. This file can be either an ecsv or a fits file, and should be a tabular dataset. The exposures file must include a few specific columns, but can contain any set of columns that are a superset of these:
+    - `TIMESTAMP`: The timestamp at which the tile exposed; passed through to fiberassign for focal plane status
+    - `DESIGNHA`: Design hour angle of the tile; passed through to fiberassign
+    - `TIMESTAMP_YMD`: The night the tile is exposed on; used for deduplicating multiple exposures of the same tile on any given night.
+    - `TILEID`: The TILEID exposed in this exposure.
+    - `PROGRAM`: e.g. "dark", "bright". Used by fiberassign to determine targets.
+    - `OBSCONDITIONS`: Integer value corresponding to the `PROGRAM` type. Used by fiberassign to determine targets.
+    - `TILEDONE`: whether this tile is completed in this exposure or not.
+    - `RA` and `DEC`: center of the tile exposed
 
-This script will load the DESI tiling, and generate up to a maximum of ~60 passes of the entire skyof tilings with unique tile centers. These are generated as the first 15 passes defined in the DESI survey design, and an additional 45 defined by further rotations on a grid.
+    `run_fiberassign_mp.py` deduplicates the exposure file by `(TILEID, TIMESTAMP_YMD)` pairs to ensure that the multiprocessing does not fiberassign the same tile on multiple nights. Tiles are allowed to appear on multiple nights, use `TILEDONE` to indicate whether this is a precompletion night or not. The general principal is that a tile will be fiberassigned on a night (if the fiberassign file does not already exist) any time that `TILEID` occurs on a unique `TIMSTAMP_YMD`, but the results of that "observation" are only incorporated into MTL updates on nights where `TILEDONE`=TRUE. This mimics true survey behaviour, where a tile is fiber assigned when it is first observed, but only QAd after it finishes its entire effective time.
 
---trim ensures that the catalog is "trimmed" such that IN_DESI is only True for tiles that lie within the nominal DESI-II area. For more details on what --fourex and --collapse do see the script's help message.
+    A helper script, `process_exposure_table.py`, is provided to process the output of a `surveysim` simulation into a form readable by `simassign`. It takes as input the output `exposures` file produced by  `surveysim` as well as the input `tiles` file to add any additional necessary columns outlined above.
+2. A configuration file. This configuration file must be structured like the desi `targetmask.yaml` but can nominally have any name. It must include definitions for each target, its required number of exposures, and a priority progression. Right now, `simassign` only supports three priority values: `DONE`, `UNOBS` and `MORE_ZGOOD`. Other values in the configuration file will be ignored.
+3. A catalog of targets. The catalog of targets needs the following three columns, although as usual more can be provided and ignored by `simassign`:
+    - `RA`, `DEC`: Self explanatory
+    - `DESITARGET`: The DESI targeting bit, whose information is stored in the configuration file.
 
-The generated tile file is structured for interop with surveysim, and includes one dummy BRIGHT and one dummy BACKUP tile. The tile file can be passed directly to surveysim without any further processing.
+    Optionally, the file can include the columns `QSO_MASK`, `LBG_MASK` or `XLG_MASK` to define subdivisions within each target class. These columns will be ingested by `simassign` with the requisite information propagated to the MTLs, but only if such information is also included in the configuration file.
 
-### 2. Simulate a Survey
-See `surveysim` to do this step.
+`run_survey_mp` has a variety of other optional requirements, some of the more notable ones are briefly detailed here:
+- `--stds $VAL`: A catalog of standard stars to use in fiberassignment. This improves the accuracy of the fiberassignment.
+- `--catalog_b`: An optional second catalog of objects, with the same data model as the first. If provided, it is also required to pass `--b_start_date`, a YMD timestamp on which to add these targets to the full catalog. This feature allows targets to be "turned on" after a specific date.
 
-### 3. Postprocess Simulated Survey
-The output of the simulated survey needs to be minorly post processed to be run through `simassign`.
+[^1]: Due to some limitations and design choices, targets are not split by PROGRAM, instead all targets enter a single MTL stored in `hp/main/dark/`. If this doesn't mean anything to you, then don't worry, because it's not important to you.
 
-```
- python process_exposures_table.py -o exposures_processed_offset-tiles-5000deg-20pass.fits -e exposures_offset-tiles-500deg-20pass.fits -t tiles-desi2-20pass-offset-tiles-5000deg-superset.ecsv
-```
+### Worked Example
+In this subsection I will briefly breakdown the following `simassign` call:
 
-`process_exposures_table` will take in the output exposures of the simulated survey (through `-e`/`--exposures`) and match the tiles to the master list of tiles, `-t`/`--tiles`. It propogates from the tiles file some tile details lost in the exposures file, namely `OBSCONDITIONS`. The processing also adds three columns necessary for simulated fiber assignming and mtl updates: `TIMESTAMP` and `TIMESTAMP_YMD` (calculated from the julien date of the observation, using astropy). The former is used for loading focalplane state in fiber assignment while the latter is used for multiprocessing over observation nights. `TILEDONE` is calculated from the `SNR2FRAC`, and is used to determine when the results of that tile are used for mtl updates.
+```python run_survey_mp.py -o $OUTPARENT --catalog $CATALOG --nproc 32 --tiles $TILES --stds $STANDARDS --danger --config targetmask.yaml```
 
-## 4. Simulate Fiber Assignment
+This call will run the survey using 32 multiprocessing processes (`--nproc 32`). The tile exposures are saved in `$TILES`, and the input target catalog is stored in `$CATALOG`. The configuration file is `targetmask.yaml`. The catalog of standard stars to propagate to fiberassign is stored in `$STDS`. `--danger` means that the script should run in danger mode, that is, use algorithms that are as fast as possible, but also slightly unstable or otherwise dangerous. Right now, this switch only turns off saving the full MTL every day, instead saving it only once a year.
 
-Do the thing.
-
-
-### Other steps:
-TBW
+## Etc.
+`simassign` also provides some other helper scripts to ease generating the required inputs. See individual scripts for more details, documentation of those scripts in the readme is TBW.
