@@ -404,7 +404,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     return targ_files, tile_files, ntargs_on_tile
 
 def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
-                      tid_counts=None, full_nobs=False):
+                      tid_counts=None, full_nobs=False, fiber_hours=False):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -483,6 +483,9 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         bit that was observed at that timestamp, but were already done so this
         observation was an over observation.
         Only returned if delta_stats = True.
+
+    fiber_hours : bool
+        TBW
     """
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
@@ -555,6 +558,9 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     if delta_stats:
         targets_obs = np.zeros(nobs)
         targets_obs_but_done = np.zeros(nobs)
+    if fiber_hours:
+        total_obs = np.zeros((ntargs, nobs))
+
     for i, time in enumerate(these_timestamps):
         ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
@@ -587,6 +593,8 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                 # everything above will be overwritten.
                 nobs_arr[j, ts_idx:] = np.sum(is_done[this_targ])
 
+            if fiber_hours:
+                total_obs[j, ts_idx:] = np.sum(trunc_mtl["NUMOBS"][this_targ])
             # This mostly used to determine fractional completeness.
             # Take the value from the end of the observations to ensure we
             # catch all targets that were added at a date later than the start
@@ -602,6 +610,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                 targets_obs[ts_idx] += np.sum(updated_this_ts & this_targ)
                 targets_obs_but_done[ts_idx] += np.sum(updated_this_ts & this_targ & targ_overobserved)
 
+    # TODO make these returns not mutually independent.
     if delta_stats:
         return nobs_arr, num_each_targ, targets_obs, targets_obs_but_done
 
@@ -611,6 +620,8 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         # since 4 will be the first element (not summed), the second is the sum of the first two (3 and 4)
         at_least_n = np.cumsum(nobs_arr[:, :, ::-1], axis=2)[:, :, ::-1]
         return nobs_arr, at_least_n
+    if fiber_hours:
+        return nobs_arr, num_each_targ, total_obs
 
     return nobs_arr, num_each_targ
 

@@ -27,6 +27,7 @@ parser.add_argument("--nobs", required=False, action="store_true", help="get and
 parser.add_argument("--split_subtype", required=False, action="store_true", help="split subtypes of targets into their own arrays. e.g. if there are multiple types of LBGs, do not aggregate their results as one LBG class.")
 parser.add_argument("--delta_stats", required=False, action="store_true", help="collate the so-called \"delta stats\", i.e. statistics on targets that get observed each timestamp.")
 parser.add_argument("--account_for_avail", required=False, action="store_true", help="generate statistics that account for the fact not every target has enough available positioners to even achieve its goal")
+parser.add_argument("--fiber_hours", required=False, action="store_true", help="generate the total number of exposed fiber hours.")
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
@@ -136,10 +137,10 @@ def get_nobs_mp(mtl):
 def get_done_mp(mtl):
     if args.account_for_avail:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
-                                 delta_stats=args.delta_stats, tid_counts=tid_counts)
+                                 delta_stats=args.delta_stats, tid_counts=tid_counts, fiber_hours=args.fiber_hours)
     else:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
-                                 delta_stats=args.delta_stats)
+                                 delta_stats=args.delta_stats, fiber_hours=args.fiber_hours)
 
 if args.nobs:
     mtl_vals = list(mtl_all.values())
@@ -173,8 +174,8 @@ if args.nobs:
             del res
 
     # [0,0] is the "at least zero exposures at zero iterations" which should include
-    # every single object at this point.
-    fraction = at_least / at_least[0, 0]
+    # every single object at that point.
+    fraction = at_least / at_least[:, 0, 0][:, None, None]
 
     print("Writing nobs arrs...")
     np.save(out_dir / f"nobs_{args.suffix}.npy", nobs)
@@ -191,6 +192,9 @@ else:
         targs_obs = np.zeros(res[0][2].shape)
         targs_obs_over = np.zeros(res[0][3].shape)
 
+    if args.fiber_hours:
+        fiber_hours = np.zeros(res[0][-1].shape)
+
     for i, r in enumerate(res):
         done += r[0]
         n_tot += r[1]
@@ -199,6 +203,9 @@ else:
             targs_obs += r[2]
             targs_obs_over += r[3]
 
+        if args.fiber_hours:
+            fiber_hours += r[-1]
+
     fraction = done / n_tot[:, None] # Should hopefully broadcast correctly.
 
     print(f"Done shape: {done.shape}")
@@ -206,6 +213,10 @@ else:
 
     print(f"Max achieved: {targs} : {fraction[:, -1]}")
     print(f"Num Targs: {targs} : {n_tot}")
+
+    if args.fiber_hours:
+        print(f"Fiber hours: {targs} : {fiber_hours[:, -1]}")
+        np.save(out_dir / f"fiber_hours_{args.suffix}.npy", fiber_hours)
 
     print("Writing done arrs...")
     np.save(out_dir / f"done_{args.suffix}.npy", done)
