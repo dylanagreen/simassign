@@ -920,25 +920,13 @@ def get_stripe_bounds(srvy, delta_dec=2.8):
     bottom_left = left_edge[0, :]
     top_left = left_edge[-1, :]
 
-    # Shift the top left so that the original top
-    # left would lie on the edge of the tile
-    top_left = top_left + np.array([tile_rad, -tile_rad]) / np.sqrt(2)
-    bottom_left = bottom_left + np.array([tile_rad, tile_rad]) / np.sqrt(2)
+    # Shift the top so that the upper edge of the tile is along the boundary
+    # and the same for lower edge / lower boundary
+    dec_max = top_left[1] - tile_rad
+    dec_min = bottom_left[1] + tile_rad
 
-    # Finding the number that fits and using linspace has
-    # the effect of "nudging" rows slightly further or closer
-    # to keep approximately the same tile overlap off the edges
-    # of the footprint. If the default spacing would leave a strip
-    # of unobservable objects at the bottom of the survey, for instance,
-    # this will nudge the rows to be slightly further
-    # apart to try cover the entirety of the footprint.
-    # As long as delta_dec < tile_diameter this should be a small
-    # effect
-    num_dec = int(np.round((top_left[1] - bottom_left[1]) / delta_dec))
-    decs = np.linspace(top_left[1], bottom_left[1], num_dec)
-
-    # # Decs down by delta dec from the top to the bottom
-    # decs = np.arange(top_left[1], bottom_left[1], -delta_dec)
+    # Decs down by delta dec from the top to the bottom
+    decs = np.arange(dec_max, dec_min, -delta_dec)
     ras_left = np.interp(decs, left_edge[:, 1], left_edge[:, 0])
     ras_right = np.interp(decs, right_edge[:, 1], right_edge[:, 0])
 
