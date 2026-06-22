@@ -765,6 +765,75 @@ def check_in_survey_area(tbl, survey=None, trim_rad=0):
 
     return in_survey
 
+def check_tiles_in_survey_healpix(tbl, survey_hpx=None, nside=128):
+    """
+    Check if the points defined in tbl are contained within the given survey area.
+
+    Parameters
+    ----------
+    tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the tile centers to check with len
+        N_tiles. The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each tile's position.
+
+    survey_hpx : :class:`~numpy.array`, optional
+        Array of survey healpixels. If passed, a tile is considered in the survey
+        area if the entire tile area is contained with the healpixels specified.
+        Tile to healpix conversion is done using desimodel.footprint.tiles2pix.
+
+    nside : int, optional
+        The HEALPix nside parameter for the survey healpixels. Defaults to 128,
+        which was the value used in Anand's footprints file.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Boolean array of len N_tiles where an element is True if that point is
+        inside the survey area and False if not.
+    """
+    hps = tiles2pix(nside, tbl, fact=256, per_tile=True)
+
+    # TODO surely there's a faster way to do this?
+    in_survey = np.asarray([np.all(np.isin(x, survey_hpx)) for x in hps])
+
+    return in_survey
+
+def check_targets_in_survey_healpix(tbl, survey_hpx=None, nside=128):
+    """
+    Check if the points defined in tbl are contained within the given survey area.
+
+    Parameters
+    ----------
+    tbl : :class:`~numpy.array` or :class:`~astropy.table.Table`
+        A numpy rec array or astropy Table storing the points to check with len
+        N_points. The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each tile's position.
+
+    survey_hpx : :class:`~numpy.array`, optional
+        Array of survey healpixels. If passed, a tile is considered in the survey
+        area if the entire tile area is contained with the healpixels specified.
+        Tile to healpix conversion is done using desimodel.footprint.tiles2pix.
+
+    nside : int, optional
+        The HEALPix nside parameter for the survey healpixels. Defaults to 128,
+        which was the value used in Anand's footprints file.
+
+    Returns
+    -------
+    :class:`~numpy.array`
+        Boolean array of len N_points where an element is True if that point is
+        inside the survey area and False if not.
+    """
+    # TODO merge with check_tiles_in_survey_healpix
+    ra = tbl["RA"]
+    dec = tbl["DEC"]
+
+    theta, phi = np.radians(90 - dec), np.radians(ra)
+    hpx_targs = hp.ang2pix(nside, theta, phi, nest=True)
+
+    return np.isin(hpx_targs, survey_hpx)
+
+
 def check_in_tile_area(targs, tiles, nside=256):
     """
     Check if the points defined in tbl are contained within the tiles
@@ -834,7 +903,7 @@ def get_survey_left_edge(srvy):
     # print(mean_diff)
     return np.array(left_edge)
 
-def get_stripe_bounds(srvy, delta_dec=2.7):
+def get_stripe_bounds(srvy, delta_dec=2.8):
     # TODO docstring
     tile_rad = get_tile_radius_deg()
 

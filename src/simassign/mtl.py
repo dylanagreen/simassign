@@ -363,8 +363,6 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["IS_QSO_QN"] = -1
     tbl["DELTACHI2"] = -1.0
 
-    # TODO make this a parameter so the MTL can accurately reflect when
-    # tbl_B targets were added.
     tbl["TIMESTAMP"] = timestamp
     tbl["VERSION"] = "0.0.1" # TODO make this the simassign version.
 

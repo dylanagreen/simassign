@@ -32,6 +32,7 @@ parser.add_argument("--stripes", required=False, action="store_true", help="use 
 parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
+parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -44,12 +45,17 @@ group.add_argument("--twoex", action="store_true", help="take two exposures of a
 group_pass = parser.add_mutually_exclusive_group(required=True)
 group_pass.add_argument("--npass", type=int, help="number of assignment passes to do.")
 group_pass.add_argument("--ntiles", type=int, help="target number of tiles to achieve, using as many passes as possible to get there.")
+group_pass.add_argument("--time", type=int, nargs=2, help="amount of time to use. If passed, first integer is the number of assignable hours, and the second is how long in minutes each tile must last. The maximum number of tiles is computed from that.")
 args = parser.parse_args()
 
 if args.stripes:
-    assert args.ntiles, "If generating stripe tiles only total number of tiles is supported (not number of passes)"
+    assert args.ntiles or args.time, "If generating stripe tiles only total number of tiles is supported (not number of passes)"
+
+if args.time:
+    args.ntiles = (args.time[0] * 60) // args.time[1]
 
 def add_tile_cols(tiles):
+    # TODO take in a config file.
     tile_tbl = Table(tiles)
     if "PROGRAM" in tile_tbl.colnames:
         tile_tbl["PROGRAM"] = tile_tbl["PROGRAM"].astype("<U15")
@@ -77,13 +83,14 @@ elif args.trim_scale:
 survey = None
 if args.survey is not None:
     try:
-        survey = np.load(args.survey)
+        survey = [np.load(args.survey)]
     except ValueError: # Survey is multiple polygons and was saved as an object array.
         survey = np.load(args.survey, allow_pickle=True)
         survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
 
 
 if args.stripes:
+    assert not args.use_healpix, "Using healpixels to check if tiles are in the survey area is not currently supported for stripe tilings."
     tiles = generate_stripe_tiles(survey, args.ntiles)
 else:
     # Load the geometry superset to get the tiling of the entire sky.
@@ -95,7 +102,10 @@ else:
     dark_tile = (tiles["PROGRAM"] == "DARK") | (tiles["PROGRAM"] == "DARK1B")
     base_tiles = tiles[zero_pass & dark_tile]
 
-    in_survey = check_in_survey_area(base_tiles, survey, trim_rad=trim_rad)
+    if args.use_healpix:
+        in_survey = check_tiles_in_survey_healpix(base_tiles, survey_hpx=survey, nside=128)
+    else:
+        in_survey = check_in_survey_area(base_tiles, survey, trim_rad=trim_rad)
     n_base = np.sum(in_survey)
     # Use this to get all tiles that touch the given zone, not just ones that only
     # have a center that falls inside the zone.
@@ -148,7 +158,10 @@ else:
             tiles["IN_DESI"][not_in_zone] = False
 
         if args.trim:
-            in_survey = check_in_survey_area(tiles, survey, trim_rad=trim_rad)
+            if args.use_healpix:
+                in_survey = check_tiles_in_survey_healpix(tiles, survey_hpx=survey, nside=128)
+            else:
+                in_survey = check_in_survey_area(tiles, survey, trim_rad=trim_rad)
             tiles["IN_DESI"] = False
             tiles["IN_DESI"][in_survey] = True
 
