@@ -40,6 +40,7 @@ if args.fix_tileids:
 times = Time(joined["MJD"], format="mjd")
 times = times.to_datetime()
 
+
 # The starting date for the MTL is late 2024, so we need the survey to start in 2025
 # otherwise things get really weird.
 if np.min(times) < datetime.strptime("20250101", "%Y%m%d"):

@@ -62,12 +62,23 @@ if args.qsos is not None:
     print(f"Setting QSO DESI_TARGET to {qso_bit}")
     qsos["DESI_TARGET"] = 2 ** qso_bit
 
+    n_qsos = len(qsos)
+    rng = np.random.default_rng(args.seed)
+    idcs = np.arange(n_qsos)
     if args.qso_mask:
-        qsos["QSO_TARGET"] = 1
-        idcs = np.arange(len(qsos))
-        rng = np.random.default_rng(args.seed)
-        choice = rng.choice(idcs, replace=False, size=(len(idcs) // 2))
-        qsos["QSO_TARGET"][choice] = 2 ** 1
+        # By default use the highest bit in the qso mask, which is in essence
+        # equivalent to filling out anything that doesn't get set to that bit.
+        qsos["QSO_TARGET"] = 2 ** targetmask["qso_mask"][-1][1]
+        for qso_subtarg in targetmask["qso_mask"]:
+            frac = eval(qso_subtarg[-1]["frac"])
+
+            choice = rng.choice(idcs, replace=False, size=int(n_qsos * frac))
+            print(f"{len(choice)} ({frac}) requested to be set to bit {qso_subtarg[1]}")
+            qsos["QSO_TARGET"][choice] = 2 ** qso_subtarg[1]
+
+            # Remove ones that were set.
+            idcs = idcs[~np.isin(idcs, choice)]
+            print(np.sum(qsos["QSO_TARGET"] == 2 ** qso_subtarg[1]), "actually set.")
 
         laes["QSO_TARGET"] = 0
         lbgs["QSO_TARGET"] = 0
