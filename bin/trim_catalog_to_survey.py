@@ -6,19 +6,20 @@ import numpy as np
 
 # TODO take in a survey area instead of harcoded.
 # simassign imports
-from simassign.util import check_in_survey_area, check_in_tile_area
+from simassign.util import check_in_survey_area, check_in_tile_area, check_targets_in_survey_healpix
 
 parser = argparse.ArgumentParser()
 parser.add_argument("catalog", type=str, help="A catalog of objects to use to trim.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save the resulting file.")
 parser.add_argument("--seed", required=False, type=int, default=91701, help="seed for the random subsampling.")
 parser.add_argument("--qsos", required=False, type=int, default=None, help="These are qsos and not lbgs, so select objects that would be excluded by the lbgs given by the matchdensity, and use this parameter for qso density.")
-parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalo, default: 1.")
+parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalog, default: 1.")
 parser.add_argument("--matchdensity", required=False, type=int, default=1000, help="output density to match in n_targ per sq deg.")
 
 group = parser.add_mutually_exclusive_group(required=False)
-group.add_argument("--survey", type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
+group.add_argument("--survey", type=str, default=None, help="use the survey defined by the boundaries in this file.")
 group.add_argument("--tiles", type=str, default=None, help="use the tiles in this file to trim the targets.")
+group.add_argument("--healpix", type=str, default=None, help="use the survey defined by the healpixels in this file.")
 args = parser.parse_args()
 
 catalog_loc = Path(args.catalog)
@@ -52,6 +53,9 @@ print(f"Achieved density {len(data_tbl) / sky_area}.")
 if args.tiles is not None:
     tiles = Table.read(args.tiles)
     in_survey = check_in_tile_area(data_tbl, tiles)
+elif args.healpix is not None:
+    survey_hpx = np.load(args.healpix)
+    in_survey = check_targets_in_survey_healpix(data_tbl, survey_hpx)
 else:
     survey = None
     if args.survey is not None:
