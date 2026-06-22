@@ -95,6 +95,7 @@ if args.split_subtype:
             if t in targs_complete:
                 continue
             this_targ = mtl["DESI_TARGET"] == t
+            if sum(this_targ) == 0: continue
             # Name should be the same for all target states so just take the first and split that
             name = mtl['TARGET_STATE'][this_targ][0].split("|")[0]
 
@@ -111,7 +112,7 @@ if args.split_subtype:
 
         if len(targs_complete) == len(targs): break
 
-    targs = all_targs
+    targs = sorted(all_targs)
 
 
 print(f"Found targs {targs}")
