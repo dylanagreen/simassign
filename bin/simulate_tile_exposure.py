@@ -54,6 +54,9 @@ def get_tile_distances(tileid, tile_tbl):
 # Use these two variables to determine distance from first tile of the night
 # to all other tiles and determine which to "observe"
 desi_tiles = tiles[tiles["IN_DESI"]]
+if "TIMESTAMP" not in desi_tiles.colnames:
+    desi_tiles["TIMESTAMP"] = "x"*25
+
 tiles_radec = np.vstack([desi_tiles["RA"], desi_tiles["DEC"]]).T
 
 
