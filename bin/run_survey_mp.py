@@ -46,7 +46,7 @@ parser.add_argument("--b_start_date", type=str, help="the date on which targets 
 parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
 
 group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument("--catalog", type=str, help="A catalog of objects to use for fiber assignment.")
+group.add_argument("--catalog", type=str, nargs="*", help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
 group.add_argument("--density", type=int, help="number density per square degree of randomly generated targets.")
 
 args = parser.parse_args()
@@ -76,49 +76,27 @@ if args.danger:
     log.details("1. Will not save MTLs every night, only every year of the survey which has implications for checkpointing.")
     log.details("=" * 9)
 
-# Generate the random targets
 rng = np.random.default_rng(args.seed)
-if args.density:
-    ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
-
-    tbl = Table()
-    tbl["RA"] = ra
-    tbl["DEC"] = dec
-else:
-    tbl = Table.read(args.catalog)
-
-# TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
-# table, so it breaks the stacking of the two.
-if "TARGETID" in tbl.colnames:
-    del tbl["TARGETID"]
-
-if "Z_COSMO" in tbl.colnames:
-    del tbl["Z_COSMO"]
-
-ra = tbl["RA"]
-dec = tbl["DEC"]
-
-log.details(f"Using {len(tbl)} targets...")
-
-nside = 64
-theta, phi = np.radians(90 - dec), np.radians(ra)
-pixlist = np.unique(hp.ang2pix(nside, theta, phi, nest=True))
-
-log.details(f"{len(pixlist)} HEALpix covered by catalog.")
 
 # Directories for later
 base_dir = Path(args.outdir)
-hp_base = base_dir / "hp" / "main" / "dark"
+hp_base = base_dir / "hp" / "main" #/ "dark"
 fba_base = base_dir / "fba"
 
 tile_loc = Path(args.tiles)
 tiles = Table.read(tile_loc)
 
+nside = 64
+def get_pixlist(ra, dec):
+    theta, phi = np.radians(90 - dec), np.radians(ra)
+    return np.unique(hp.ang2pix(nside, theta, phi, nest=True))
+
 loaded_from_checkpoint = False
 # Check for healpixels AND fiber assignments, if there's only the former the
 # script may have interrupted when the catalog was still being generated, and
 # we may attempt an incomplete checkpoint load.
-if hp_base.is_dir(): #and fba_base.is_dir():
+# FIXME temporarily skipping this branch until I have program splitting working, then will rework this to correctly load the checkpoint.
+if False: #hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
     mtl_all = load_mtl_all(hp_base, as_dict=True, nproc=args.nproc)
     last_timestamp = np.sort([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all.values()])[-1]
@@ -128,13 +106,49 @@ if hp_base.is_dir(): #and fba_base.is_dir():
     loaded_from_checkpoint = True
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
 else:
-    if args.stds is not None:
-        stds_catalog = Table.read(args.stds)
-        mtl_all = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng)
-    else:
-        mtl_all = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng)
+    # Generate trandom targets
+    if args.density:
+        ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
 
-    if args.catalog_b:
+        tbl = Table()
+        tbl["RA"] = ra
+        tbl["DEC"] = dec
+    else:
+        if args.stds is not None:
+            stds_catalog = Table.read(args.stds)
+
+        mtl_all = {}
+        pixlist = {}
+        for catalog in args.catalog:
+            tbl = Table.read(catalog)
+
+            # TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
+            # table, so it breaks the stacking of the two.
+            if "TARGETID" in tbl.colnames:
+                del tbl["TARGETID"]
+
+            if "Z_COSMO" in tbl.colnames:
+                del tbl["Z_COSMO"]
+
+            ra = tbl["RA"]
+            dec = tbl["DEC"]
+
+            prog = tbl.meta["PROGRAM"]
+            pixlist[prog] = get_pixlist(ra, dec)
+
+            log.details(f"Using {len(tbl)} {prog=} targets...")
+            log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
+
+            if args.stds is not None:
+                mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
+            else:
+                mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
+
+        # pixlist = np.unique(np.concatenate(pixlist))
+
+
+    # FIXME make catalog b also a list, and reenable this block.
+    if False: #args.catalog_b:
         # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
         # stadards would be duplicated if we did. We create it first mostly just because,
         # it makes more sense to me to make it in memory at the start of everything.
@@ -215,8 +229,10 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True, design
     return np.asarray([], dtype=int) # Force dtype = int to ensure stacking remains ints.
 
 def save_mtl(mtl_to_save, hpx):
-    log.details(f"Saving healpix {hpx}")
-    mtl_to_save.write(hp_base / f"mtl-dark-hp-{hpx}.ecsv", overwrite=True)
+    # TODO put the healpix in the metadata and we don't need to pass it in.
+    prog = mtl_to_save.meta["PROGRAM"].lower()
+    log.details(f"Saving healpix {hpx}, {prog=}")
+    mtl_to_save.write(hp_base / prog / f"mtl-{prog}-hp-{hpx}.ecsv", overwrite=True)
 
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 times = {"gen_curr_mtl": [], "assign": [],  "get_last_time": [], "update_mtl": [], "save_mtl": [],}  # For profiling.
@@ -225,6 +241,9 @@ cur_year = tiles["TIMESTAMP_YMD"][0][:4]
 # So we save at the correct points again later.
 if loaded_from_checkpoint:
     cur_year = last_timestamp[:4]
+
+# Cut tiles for programs which we have no targets
+tiles = tiles[np.isin(tiles["PROGRAM"], list(mtl_all.keys()))]
 
 not_added = True
 log.details(f"Starting year: {cur_year}")
@@ -271,15 +290,15 @@ with Pool(args.nproc) as p:
         # Shouldn't be necessary with updated processing but that's fine.
         tiles_subset = unique(tiles[this_date & tiles["IN_DESI"]], "TILEID")
 
-        hpx_night = tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"]) # Already unique from the return of tiles2pix
-        hpx_night = hpx_night[np.isin(hpx_night, pixlist)] # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
-
-        log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles ({len(hpx_night)} HPX) to run")
+        # Already unique from the return of tiles2pix
+        hpx_night = {prog: tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"][tiles_subset["PROGRAM"] == prog]) for prog in mtl_all.keys()}
+        hpx_night = {k: v[np.isin(v, pixlist[k])] for k, v in hpx_night.items()} # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
+        log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles to run")
         # if len(hpx_night) == 0: continue
         # Deduplicate the MTL to get only the most recent information for each target.
         # TODO run fiberassign in a way that we can skip saving target files.
         t_start_curr = time.time()
-        curr_mtl = deduplicate_mtl(vstack([mtl_all[hpx] for hpx in hpx_night]))
+        curr_mtl = {prog: deduplicate_mtl(vstack([mtl_all[prog][hpx] for hpx in hpx_night[prog]])) for prog in mtl_all.keys()}
         t_end_curr = time.time()
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
         log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
@@ -290,9 +309,10 @@ with Pool(args.nproc) as p:
         targ_files, tile_files = np.asarray(targ_files), np.asarray(tile_files)
         good_tile = np.where(ntargs_on_tile > 0)
 
-        log.details(f"Good tile: {good_tile}, {ntargs_on_tile}")
-        log.details(np.array(tiles_subset["TILEID"][good_tile]))
-        log.details(tiles_subset[ntargs_on_tile == 0])
+        # Some debugging lines I leave for posterity.
+        # log.details(f"Good tile: {good_tile}, {ntargs_on_tile}")
+        # log.details(np.array(tiles_subset["TILEID"][good_tile]))
+        # log.details(tiles_subset[ntargs_on_tile == 0])
 
         # Worthwhile to keep this for summary plot purposes
         tile_loc = base_dir / f"tiles-{timestamp}.fits"
@@ -324,10 +344,13 @@ with Pool(args.nproc) as p:
 
         t_mid = time.time()
         times["get_last_time"].append(t_mid - t3)
-        update_params = [(mtl_all[hpx], assigned_tids, targetmask, last_time, False) for hpx in hpx_night]
-        updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as hpx_night
-        for j, hpx in enumerate(hpx_night):
-            mtl_all[hpx] = updated_tbls[j]
+        update_params = [(mtl_all[prog][hpx], assigned_tids, targetmask, last_time, False) for prog in mtl_all.keys() for hpx in hpx_night[prog]]
+        updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as prog then hpx_night
+        j = 0
+        for prog in mtl_all.keys():
+            for hpx in hpx_night[prog]:
+                mtl_all[prog][hpx] = updated_tbls[j]
+                j += 1
         t4 = time.time()
         times["update_mtl"].append(t4 - t3)
         log.details(f"MTL update took {t4 - t3} seconds...")
@@ -335,12 +358,12 @@ with Pool(args.nproc) as p:
         # Step 4 save the updated MTLs
         # Write updated MTLs by healpix.
         if not args.danger:
-            save_params = [(mtl_all[hpx], hpx) for hpx in hpx_night]
+            save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in hpx_night[prog]]
             p.starmap(save_mtl, save_params)
         # In danger mode only save if the year crosses over or it's the last night.
         elif (args.danger and (night_year > cur_year)):
             log.details(f"Saving on night {i} {timestamp}")
-            save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
+            save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in pixlist[prog]]
             p.starmap(save_mtl, save_params)
 
         t5 = time.time()
@@ -349,13 +372,14 @@ with Pool(args.nproc) as p:
 
         cur_year = night_year
 
+        # TODO remove reset mtl.
         if args.resetmtl and (i % 2) == 1:
             log.details(f"Resetting MTL after Night {i}")
             mtl_all = initialize_mtl(tbl, None, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
     t4 = time.time()
     log.details(f"Saving at conclusion...")
-    save_params = [(mtl_all[hpx], hpx) for hpx in pixlist]
+    save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in pixlist[prog]]
     p.starmap(save_mtl, save_params)
     t5 = time.time()
     times["save_mtl"].append(t5 - t4)

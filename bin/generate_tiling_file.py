@@ -11,9 +11,6 @@ from astropy.table import Table, vstack, unique
 from desimodel.io import load_tiles
 from desimodel.focalplane import get_tile_radius_deg
 
-# stdlib imports
-from pathlib import Path
-
 # simassign imports
 from simassign.util import *
 

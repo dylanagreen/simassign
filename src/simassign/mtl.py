@@ -222,7 +222,8 @@ def load_target_yaml(fname):
 
 def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
                    as_dict=False, targetmask=None, nproc=1, start_id=0,
-                   timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701)):
+                   timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701),
+                   program="DARK"):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -283,6 +284,14 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         Timestamp to encode into this MTL, representing the starting date/time
         of the ledger. Defaults to "2024-12-30T00:00:00+00:00".
 
+    rng : np.random.Generator
+        A random number generator to use for generating numbers. Useful if
+        the rng should be reused between processes to ensure total
+        reproducibility. Defaults to a newly instantiated one with see 91701.
+
+    program : str, optional
+        The program directory to save this MTL to, defaults to "DARK".
+
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table` or dict
@@ -322,6 +331,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["PRIORITY"] = 3400
 
     tbl["SUBPRIORITY"] = rng.uniform(size=len(tbl))
+    tbl.meta["PROGRAM"] = program
 
     nside = 64
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
@@ -352,6 +362,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
 
     # Various afterburner / target parameters we don't care about too much
     # because we don't have actual spectra, just target positions,
+    # TODO Since we don't use desitarget for udpates anymore, do we actually need these? Is it just adding bulk?
     tbl["PMRA"] = 0.0
     tbl["PMDEC"] = 0.0
     tbl["REF_EPOCH"] = 0.0
@@ -428,7 +439,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     if save_dir is not None:
         base_dir = Path(save_dir)
         if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
-        hp_base = base_dir / "hp" / "main" / "dark"
+        hp_base = base_dir / "hp" / "main" / program.lower()
         hp_base.mkdir(parents=True, exist_ok=True)
 
     if as_dict:
@@ -439,7 +450,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
             # mtl_all[hpx].sort("TARGETID")
 
             log.details(f"Generated {hpx}")
-            fname =  f"mtl-dark-hp-{hpx}.ecsv"
+            fname =  f"mtl-{program.lower()}-hp-{hpx}.ecsv"
             if save_dir is not None:
                 mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
                 log.details(f"Saved to {str(hp_base / fname)}")

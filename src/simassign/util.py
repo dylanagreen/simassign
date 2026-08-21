@@ -338,15 +338,17 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     Parameters
     ----------
-    targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
-        A numpy rec array or astropy Table storing the target definition.
+    targs : dict of :class:`~numpy.array` or :class:`~astropy.table.Table`
+        Dictioanry of numpy rec arrays or astropy Tables storing the target definition.
         The data model is largely agnostic, but should include at minimum the
-        columns "RA" and "DEC" defining each target position.
+        columns "RA" and "DEC" defining each target position. Keys of the dictionary
+        should be the programs in the tiles table.
 
     tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
         The data model is largely agnostic, but should include at minimum the
-        columns "RA" and "DEC" defining each tile center.
+        columns "RA" and "DEC" defining each tile center and "PROGRAM" defining
+        what program this tile is observed in.
 
     out_dir : str or :class:`~pathlib.Path`
         The directory to save the tile and target files to.
@@ -375,7 +377,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     if verbose: print(f"Passed {len(tiles)} to generate target files")
     save_loc = Path(out_dir) / f"night-{night}"
 
-    # Make the director if it doesn't exist (very likely)
+    # Make the directory if it doesn't exist (very likely)
     save_loc.mkdir(parents=True, exist_ok=True)
 
     targ_files = []
@@ -383,10 +385,11 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     ntargs_on_tile = []
     for tile in tiles:
         tileid = tile["TILEID"]
+        prog = tile["PROGRAM"]
         if trunc:
-            tile_targs = targets_in_tile(targs, (tile["RA"], tile["DEC"]))
+            tile_targs = targets_in_tile(targs[prog], (tile["RA"], tile["DEC"]))
         else:
-            tile_targs = targs
+            tile_targs = targs[prog]
 
         target_filename = save_loc / f"targets-{tileid}.fits"
         if verbose: print(f"Writing {len(tile_targs)} to {target_filename}")
