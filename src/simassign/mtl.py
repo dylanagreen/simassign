@@ -438,8 +438,8 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
 
     if save_dir is not None:
         base_dir = Path(save_dir)
-        if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
         hp_base = base_dir / "hp" / "main" / program.lower()
+        if hp_base.exists(): shutil.rmtree(hp_base) # Removes an old run in the same dir.
         hp_base.mkdir(parents=True, exist_ok=True)
 
     if as_dict:
@@ -452,7 +452,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
             log.details(f"Generated {hpx}")
             fname =  f"mtl-{program.lower()}-hp-{hpx}.ecsv"
             if save_dir is not None:
-                mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
+                mtl_all[hpx].write(hp_base / fname, overwrite=True)
                 log.details(f"Saved to {str(hp_base / fname)}")
 
     # Want the global MTL sorted on TARGETID too.
