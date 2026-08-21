@@ -30,10 +30,6 @@ from simassign.io import load_mtl_all
 from simassign.logging import get_log
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
-parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
-parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
-parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
@@ -44,10 +40,7 @@ parser.add_argument("--resetmtl", required=False, action="store_true", help="res
 parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
 parser.add_argument("--b_start_date", type=str, help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
 parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
-
-group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument("--catalog", type=str, nargs="*", help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
-group.add_argument("--density", type=int, help="number density per square degree of randomly generated targets.")
+parser.add_argument("--catalog", type=str, nargs="*", required=True, help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
 
 args = parser.parse_args()
 
@@ -113,44 +106,33 @@ if hp_base.is_dir(): #and fba_base.is_dir():
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
     pixlist = {k: list(v.keys()) for k, v in mtl_all.items() }
 else:
-    # Generate trandom targets
-    if args.density:
-        ra, dec = generate_random_objects(args.ramin, args.ramax, args.decmin, args.decmax, rng, args.density)
+    if args.stds is not None:
+        stds_catalog = Table.read(args.stds)
 
-        tbl = Table()
-        tbl["RA"] = ra
-        tbl["DEC"] = dec
-    else:
+    for catalog in args.catalog:
+        tbl = Table.read(catalog)
+
+        # TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
+        # table, so it breaks the stacking of the two.
+        if "TARGETID" in tbl.colnames:
+            del tbl["TARGETID"]
+
+        if "Z_COSMO" in tbl.colnames:
+            del tbl["Z_COSMO"]
+
+        ra = tbl["RA"]
+        dec = tbl["DEC"]
+
+        prog = tbl.meta["PROGRAM"]
+        pixlist[prog] = get_pixlist(ra, dec)
+
+        log.details(f"Using {len(tbl)} {prog=} targets...")
+        log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
+
         if args.stds is not None:
-            stds_catalog = Table.read(args.stds)
-
-        for catalog in args.catalog:
-            tbl = Table.read(catalog)
-
-            # TARGETID will be reset in initi_mtl, Z_COSMO doesn't exist in the standars
-            # table, so it breaks the stacking of the two.
-            if "TARGETID" in tbl.colnames:
-                del tbl["TARGETID"]
-
-            if "Z_COSMO" in tbl.colnames:
-                del tbl["Z_COSMO"]
-
-            ra = tbl["RA"]
-            dec = tbl["DEC"]
-
-            prog = tbl.meta["PROGRAM"]
-            pixlist[prog] = get_pixlist(ra, dec)
-
-            log.details(f"Using {len(tbl)} {prog=} targets...")
-            log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
-
-            if args.stds is not None:
-                mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
-            else:
-                mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
-
-        # pixlist = np.unique(np.concatenate(pixlist))
-
+            mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
+        else:
+            mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
 
     # FIXME make catalog b also a list, and reenable this block.
     if False: #args.catalog_b:
