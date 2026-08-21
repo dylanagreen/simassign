@@ -291,14 +291,17 @@ with Pool(args.nproc) as p:
         tiles_subset = unique(tiles[this_date & tiles["IN_DESI"]], "TILEID")
 
         # Already unique from the return of tiles2pix
-        hpx_night = {prog: tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"][tiles_subset["PROGRAM"] == prog]) for prog in mtl_all.keys()}
+        # The "if prog in tiles_subset" helps catch if a specific prog is not
+        # observed on a given night.
+        # NOTE: hpx_nights.keys() is guaranteed to always be a subset of mtl_all.keys() because of this.
+        hpx_night = {prog: tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"][tiles_subset["PROGRAM"] == prog]) for prog in mtl_all.keys() if prog in tiles_subset["PROGRAM"]}
         hpx_night = {k: v[np.isin(v, pixlist[k])] for k, v in hpx_night.items()} # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
         log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles to run")
         # if len(hpx_night) == 0: continue
         # Deduplicate the MTL to get only the most recent information for each target.
         # TODO run fiberassign in a way that we can skip saving target files.
         t_start_curr = time.time()
-        curr_mtl = {prog: deduplicate_mtl(vstack([mtl_all[prog][hpx] for hpx in hpx_night[prog]])) for prog in mtl_all.keys()}
+        curr_mtl = {prog: deduplicate_mtl(vstack([mtl_all[prog][hpx] for hpx in hpx_night[prog]])) for prog in hpx_night.keys()}
         t_end_curr = time.time()
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
         log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
@@ -344,10 +347,10 @@ with Pool(args.nproc) as p:
 
         t_mid = time.time()
         times["get_last_time"].append(t_mid - t3)
-        update_params = [(mtl_all[prog][hpx], assigned_tids, targetmask, last_time, False) for prog in mtl_all.keys() for hpx in hpx_night[prog]]
+        update_params = [(mtl_all[prog][hpx], assigned_tids, targetmask, last_time, False) for prog in hpx_night.keys() for hpx in hpx_night[prog]]
         updated_tbls = p.starmap(update_mtl, update_params) # Should return in same order as prog then hpx_night
         j = 0
-        for prog in mtl_all.keys():
+        for prog in hpx_night.keys():
             for hpx in hpx_night[prog]:
                 mtl_all[prog][hpx] = updated_tbls[j]
                 j += 1
@@ -358,7 +361,7 @@ with Pool(args.nproc) as p:
         # Step 4 save the updated MTLs
         # Write updated MTLs by healpix.
         if not args.danger:
-            save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in hpx_night[prog]]
+            save_params = [(mtl_all[prog][hpx], hpx) for prog in hpx_night.keys() for hpx in hpx_night[prog]]
             p.starmap(save_mtl, save_params)
         # In danger mode only save if the year crosses over or it's the last night.
         elif (args.danger and (night_year > cur_year)):
