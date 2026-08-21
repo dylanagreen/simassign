@@ -95,16 +95,23 @@ loaded_from_checkpoint = False
 # Check for healpixels AND fiber assignments, if there's only the former the
 # script may have interrupted when the catalog was still being generated, and
 # we may attempt an incomplete checkpoint load.
-# FIXME temporarily skipping this branch until I have program splitting working, then will rework this to correctly load the checkpoint.
-if False: #hp_base.is_dir(): #and fba_base.is_dir():
+mtl_all = {}
+pixlist = {}
+if hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
-    mtl_all = load_mtl_all(hp_base, as_dict=True, nproc=args.nproc)
-    last_timestamp = np.sort([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all.values()])[-1]
+    timestamps = []
+    for prog_dir in hp_base.glob("*"):
+        prog = prog_dir.name.upper()
+        mtl_all[prog] = load_mtl_all(prog_dir, as_dict=True, nproc=args.nproc)
+        timestamps.append([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all[prog].values()])
+
+    last_timestamp = np.sort(np.concatenate(timestamps))[-1]
     last_timestamp = last_timestamp[:10] # Only need the date, not the time
     last_timestamp = last_timestamp.replace("-", "")
 
     loaded_from_checkpoint = True
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
+    pixlist = {k: list(v.keys()) for k, v in mtl_all.items() }
 else:
     # Generate trandom targets
     if args.density:
@@ -117,8 +124,6 @@ else:
         if args.stds is not None:
             stds_catalog = Table.read(args.stds)
 
-        mtl_all = {}
-        pixlist = {}
         for catalog in args.catalog:
             tbl = Table.read(catalog)
 
