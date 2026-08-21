@@ -37,15 +37,29 @@ parser.add_argument("--nproc", required=False, type=int, default=1, help="number
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
 parser.add_argument("--resetmtl", required=False, action="store_true", help="reset the mtl every other night for reassignment tests.")
-parser.add_argument("--catalog_b", type=str, help="A catalog of objects to use for fiber assignment, that will be added later in the survey.")
-parser.add_argument("--b_start_date", type=str, help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
 parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
 parser.add_argument("--catalog", type=str, nargs="*", required=True, help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
-
+parser.add_argument("--catalog_b", type=str, nargs="*", help="a catalog of objects to use for fiber assignment, that will be added later in the survey.")
+parser.add_argument("--b_start_date", type=str, nargs="*", help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
+# TODO rename catalog b to something more useful.
 args = parser.parse_args()
 
 if args.catalog_b or args.b_start_date:
     assert args.catalog_b and args.b_start_date, "If providing --catalog_b or a --b_start_date, you must provide both!"
+if args.catalog_b and args.b_start_date:
+    assert len(args.catalog_b) == len(args.b_start_date), "Must provide one start date for each catalog in catalog b"
+
+    # Sorting the dates to add means that at the comparison step in the loop
+    # we only ever need to check against the first vslue of the list. We will
+    # pop if off when we add it.
+    dates_to_add = np.asarray(args.b_start_date)
+    catalogs_to_add = np.asarray(args.catalog_b)
+    sorter = np.argsort(dates_to_add)
+    dates_to_add = dates_to_add[sorter]
+    catalogs_to_add = catalogs_to_add[sorter]
+else:
+    dates_to_add = np.array([])
+    catalogs_to_add = np.array([])
 
 t_start = time.time()
 
@@ -90,6 +104,7 @@ loaded_from_checkpoint = False
 # we may attempt an incomplete checkpoint load.
 mtl_all = {}
 pixlist = {}
+curr_tid = 0
 if hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
     timestamps = []
@@ -104,7 +119,15 @@ if hp_base.is_dir(): #and fba_base.is_dir():
 
     loaded_from_checkpoint = True
     log.details(f"Loaded Checkpointed MTLs with last timestamp: {last_timestamp}")
-    pixlist = {k: list(v.keys()) for k, v in mtl_all.items() }
+    pixlist = {k: list(v.keys()) for k, v in mtl_all.items()}
+
+    # Anything that was added before the latest timestamp
+    # will already be reflected in the loaded mtls. Remove them.
+    if len(dates_to_add) > 0:
+        keep = dates_to_add > last_timestamp
+        dates_to_add = dates_to_add[keep]
+        catalogs_to_add = catalogs_to_add[keep]
+
 else:
     if args.stds is not None:
         stds_catalog = Table.read(args.stds)
@@ -130,37 +153,15 @@ else:
         log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
 
         if args.stds is not None:
-            mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
+            mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog,
+                                           as_dict=True, targetmask=targetmask,
+                                           nproc=args.nproc, rng=rng, program=prog,
+                                           start_id=curr_tid)
         else:
-            mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True, targetmask=targetmask, nproc=args.nproc, rng=rng, program=prog)
-
-    # FIXME make catalog b also a list, and reenable this block.
-    if False: #args.catalog_b:
-        # Do not load standards for catalog b. Since it gets added later to the mtl_all, the
-        # stadards would be duplicated if we did. We create it first mostly just because,
-        # it makes more sense to me to make it in memory at the start of everything.
-        # But we could make the second MTL at the time its supposed to be added if we wanted.
-        tbl_b = Table.read(args.catalog_b)
-        # We do not need to save this, it just needs to exist in memory for appending later.
-        b_timestamp = args.b_start_date[:4] + "-" + args.b_start_date[4:6] + "-" + args.b_start_date[6:]
-        b_timestamp += "T00:00:01+00:00"
-        mtl_all_b = initialize_mtl(tbl_b, save_dir=None, as_dict=True, targetmask=targetmask, nproc=args.nproc,
-                                   start_id=len(tbl), timestamp=b_timestamp, rng=rng)
-
-        # Generate empty tables for healpixels that are in one catalog but not
-        # the other.
-        hp_a = list(mtl_all.keys())
-        hp_b = list(mtl_all_b.keys())
-
-        log.details("Generating dummy tables...")
-        for hp in (hp_a + hp_b):
-            if hp not in hp_b:
-                log.details(f"Added dummy table to mtl_all_b for {hp}")
-                mtl_all_b[hp] = Table(names=mtl_all[hp].colnames, dtype=mtl_all[hp].dtype)
-            elif hp not in hp_a:
-                log.details(f"Added dummy table to mtl_all for {hp}")
-                mtl_all[hp] = Table(names=mtl_all_b[hp].colnames, dtype=mtl_all_b[hp].dtype)
-
+            mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True,
+                                           targetmask=targetmask, nproc=args.nproc,
+                                           rng=rng, program=prog, start_id=curr_tid)
+        curr_tid += len(tbl)
 
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
@@ -221,6 +222,22 @@ def save_mtl(mtl_to_save, hpx):
     log.details(f"Saving healpix {hpx}, {prog=}")
     mtl_to_save.write(hp_base / prog / f"mtl-{prog}-hp-{hpx}.ecsv", overwrite=True)
 
+def add_dummies(mtl_a, mtl_b):
+    # TODO docstring, this mutates inputs
+    # Generate empty tables for healpixels that are in one catalog but not
+    # the other.
+    hp_a = list(mtl_a.keys())
+    hp_b = list(mtl_b.keys())
+
+    log.details("Generating dummy tables...")
+    for hp in (hp_a + hp_b):
+        if hp not in hp_b:
+            log.details(f"Added dummy table to mtl_b for {hp}")
+            mtl_b[hp] = Table(names=mtl_a[hp].colnames, dtype=mtl_a[hp].dtype)
+        elif hp not in hp_a:
+            log.details(f"Added dummy table to mtl_a for {hp}")
+            mtl_a[hp] = Table(names=mtl_b[hp].colnames, dtype=mtl_b[hp].dtype)
+
 n_nights = len(np.unique(tiles["TIMESTAMP_YMD"]))
 times = {"gen_curr_mtl": [], "assign": [],  "get_last_time": [], "update_mtl": [], "save_mtl": [],}  # For profiling.
 cur_year = tiles["TIMESTAMP_YMD"][0][:4]
@@ -240,31 +257,64 @@ with Pool(args.nproc) as p:
         if loaded_from_checkpoint and timestamp <= last_timestamp:
             log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
 
-            # If we are in this block, and enter this if condition, then we haven't yet reached
-            # the checkpointed timestamp but we have passed the time at which the catalog
-            # would be added, meaning the catalog was added in the checkpointed MTLs
-            if args.b_start_date and (timestamp > args.b_start_date): not_added = False
             continue
-        if args.b_start_date:
-            if not_added and (timestamp >= args.b_start_date):
-                log.details(f"Adding catalog_b on {timestamp}")
-                hpx_join = mtl_all.keys()
-                concat_params = [(mtl_all[hp], mtl_all_b[hp]) for hp in hpx_join]
+        if (len(dates_to_add) > 0) and (timestamp >= dates_to_add[0]):
+            log.details(f"Adding {catalogs_to_add[0]} on {timestamp}")
+
+            # Do not load standards for catalog b. Since it gets added to mtl_all, the
+            # stadards would be duplicated if we did.
+            tbl_add = Table.read(catalogs_to_add[0])
+            prog_add = tbl_add.meta["PROGRAM"]
+
+            # Need to make the timestamp for this catalog. "timetsamp" is
+            # > date to add because date to add is at 000 UTC, which is what
+            # we will put into the catalog for the first row of these targets
+            # (so they are "on" for that "night" of observing)
+            timestamp_add = dates_to_add[0][:4] + "-" + dates_to_add[0][4:6] + "-" + dates_to_add[0][6:]
+            timestamp_add += "T00:00:01+00:00"
+
+            # If we are adding to a program that already exists, add
+            # it to that mtl
+            if prog_add in mtl_all.keys():
+                mtl_add = initialize_mtl(tbl_add, save_dir=None, as_dict=True,
+                                         targetmask=targetmask, nproc=args.nproc,
+                                         start_id=curr_tid, timestamp=timestamp_add,
+                                         rng=rng)
+
+                # Adding dummies if they don't cover exactly the same healpixels.
+                add_dummies(mtl_all[prog_add], mtl_add)
+
+                hpx_join = mtl_add.keys()
+                concat_params = [(mtl_all[prog_add][hp], mtl_add[hp]) for hp in hpx_join]
                 res = p.starmap(concatenate_mtls, concat_params)
 
                 for j, hp in enumerate(hpx_join):
-                    mtl_all[hp] = res[j]
+                    mtl_all[prog_add][hp] = res[j]
 
-                log.details(f"Prev pixlist len: {len(pixlist)}")
+                log.details(f"Prev pixlist len: {len(pixlist[prog_add])}")
                 # The previous pixlist was generated from the healpixels of
-                # only targets in the primary catalog. Dummy tables were added
-                # to MTL all to account for healpixels that are in catalog
-                # b but not a, but we need to update the pixlist now
-                # that we've added catalog b to include those targets.
-                pixlist = np.asarray(list(mtl_all.keys()))
-                log.details(f"Updated pixlist len: {len(pixlist)}")
-                del mtl_all_b # Free up some memory, now that those targets are in the main mtl.
-                not_added = False
+                # only targets in the primary catalog. New pixlist may not be
+                # the same due to the catalogs not covering entirely the same area
+                pixlist[prog_add] = np.asarray(list(hpx_join))
+                log.details(f"Updated pixlist len: {len(pixlist[prog_add])}")
+            else:
+                # We create with saving to make sure that the directory exists
+                # for later when we save at ehe end of the run.
+                # Also ensures it is checkpointed correctly.
+                mtl_add = initialize_mtl(tbl_add, save_dir=args.outdir, as_dict=True,
+                                         targetmask=targetmask, nproc=args.nproc,
+                                         start_id=curr_tid, timestamp=timestamp_add,
+                                         rng=rng)
+
+                mtl_all[prog_add] = mtl_add
+                pixlist[prog_add] = list(mtl_add.keys())
+
+            curr_tid += len(tbl_add)
+            del mtl_add # Free up some memory.
+
+            # Remove this catalog from the "to add"
+            dates_to_add = dates_to_add[1:]
+            catalogs_to_add = catalogs_to_add[1:]
 
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]
