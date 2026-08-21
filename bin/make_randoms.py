@@ -12,7 +12,7 @@ parser.add_argument("--seed", required=False, type=int, default=91701, help="see
 parser.add_argument("--density", required=False, type=int, default=1200, help="output density in n_targ per sq deg.")
 parser.add_argument("--survey", type=str, default=None, help="use the survey defined by the boundaries in this file rather than the full sky.")
 parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalo, default: 1.")
-
+parser.add_argument("--program", required=False, type=str, default="DARK", help="program to encode in table metadata.")
 args = parser.parse_args()
 
 sky_area = 360**2 / np.pi
@@ -27,6 +27,8 @@ dec = np.rad2deg(dec)
 
 data_tbl = Table({"RA": ra, "DEC": dec,})
 data_tbl["DESI_TARGET"] = 2 ** args.desitarget
+
+data_tbl.meta["PROGRAM"] = args.program
 
 if args.survey is not None:
     try:
