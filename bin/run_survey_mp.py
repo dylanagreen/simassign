@@ -39,21 +39,21 @@ parser.add_argument("--danger", required=False, action="store_true", help="you w
 parser.add_argument("--resetmtl", required=False, action="store_true", help="reset the mtl every other night for reassignment tests.")
 parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
 parser.add_argument("--catalog", type=str, nargs="*", required=True, help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
-parser.add_argument("--catalog_b", type=str, nargs="*", help="a catalog of objects to use for fiber assignment, that will be added later in the survey.")
-parser.add_argument("--b_start_date", type=str, nargs="*", help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
+parser.add_argument("--catalog_later", type=str, nargs="*", help="catalog(s) of objects to use for fiber assignment, that will be added later in the survey.")
+parser.add_argument("--later_starts", type=str, nargs="*", help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
 # TODO rename catalog b to something more useful.
 args = parser.parse_args()
 
-if args.catalog_b or args.b_start_date:
-    assert args.catalog_b and args.b_start_date, "If providing --catalog_b or a --b_start_date, you must provide both!"
-if args.catalog_b and args.b_start_date:
-    assert len(args.catalog_b) == len(args.b_start_date), "Must provide one start date for each catalog in catalog b"
+if args.catalog_later or args.later_starts:
+    assert args.catalog_later and args.later_starts, "If providing --catalog_later or --later_starts, you must provide both!"
+if args.catalog_later and args.later_starts:
+    assert len(args.catalog_later) == len(args.later_starts), "Must provide one start date for each catalog in catalog_later"
 
     # Sorting the dates to add means that at the comparison step in the loop
     # we only ever need to check against the first vslue of the list. We will
     # pop if off when we add it.
-    dates_to_add = np.asarray(args.b_start_date)
-    catalogs_to_add = np.asarray(args.catalog_b)
+    dates_to_add = np.asarray(args.later_starts)
+    catalogs_to_add = np.asarray(args.catalog_later)
     sorter = np.argsort(dates_to_add)
     dates_to_add = dates_to_add[sorter]
     catalogs_to_add = catalogs_to_add[sorter]
