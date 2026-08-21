@@ -17,6 +17,8 @@ from multiprocessing import Pool
 from pathlib import Path
 import shutil
 
+from ._version import __version__ as simassign_version
+
 from simassign.logging import get_log
 log = get_log()
 mtl_cols = ['RA',
@@ -375,7 +377,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["DELTACHI2"] = -1.0
 
     tbl["TIMESTAMP"] = timestamp
-    tbl["VERSION"] = "0.0.1" # TODO make this the simassign version.
+    tbl["VERSION"] = simassign_version
 
     for c in mtl_cols:
         assert c in tbl.colnames, f"{c} not found in cols!"
