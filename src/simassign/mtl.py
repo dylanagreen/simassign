@@ -48,7 +48,7 @@ mtl_cols = ['RA',
             'VERSION',
             'OBSCONDITIONS',
             'HEALPIX']
-
+CALIB_TARGS = ["STD", "SKY"]
 
 def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitarget=False, verbose=False):
     """
@@ -407,6 +407,7 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
     for target in targetmask["desi_mask"]:
         bit = 2**target[1]
         name = target[0]
+        if name in CALIB_TARGS: continue
         this_target = (tbl["DESI_TARGET"] & bit) != 0
 
         log.details(f"Init Target {target} {np.sum(this_target)}")

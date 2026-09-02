@@ -12,7 +12,7 @@ import healpy as hp
 from matplotlib.patches import Path as mpPath
 import numpy as np
 
-from simassign.mtl import deduplicate_mtl
+from simassign.mtl import deduplicate_mtl, CALIB_TARGS
 
 # Rotations for first through 15th passes of the sky of the DESI tiling
 rots = np.array([[0, 0],
@@ -79,7 +79,6 @@ new_rots = np.array([[-2.55045500e+00,  4.35673381e+00],
                      [-5.11839125e+00,  1.55978360e+01],
                      [ 1.28571625e+01, -1.30985269e+01],
                      [-7.68632750e+00,  1.69884994e+01]])
-
 
 def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
     """
@@ -1074,9 +1073,8 @@ def target_mask_to_int(targetmask, targtype="SCIENCE"):
     catalog.
     """
     mask = 0
-    calib_targs = ["STD", "SKY"]
     for row in targetmask["desi_mask"]:
-        if (targtype == "SCIENCE") and (row[0] not in calib_targs):
+        if (targtype == "SCIENCE") and (row[0] not in CALIB_TARGS):
             mask += 2 ** (row[1])
         elif row[0] == targtype:
             # The case where we want only the calib targets.
