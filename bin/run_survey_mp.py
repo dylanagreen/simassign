@@ -309,7 +309,7 @@ with Pool(args.nproc) as p:
                 mtl_add = initialize_mtl(tbl_add, save_dir=None, as_dict=True,
                                          targetmask=targetmask, nproc=args.nproc,
                                          start_id=curr_tid, timestamp=timestamp_add,
-                                         rng=rng)
+                                         rng=rng, program=prog_add)
 
                 # Adding dummies if they don't cover exactly the same healpixels.
                 add_dummies(mtl_all[prog_add], mtl_add)
@@ -334,7 +334,7 @@ with Pool(args.nproc) as p:
                 mtl_add = initialize_mtl(tbl_add, save_dir=args.outdir, as_dict=True,
                                          targetmask=targetmask, nproc=args.nproc,
                                          start_id=curr_tid, timestamp=timestamp_add,
-                                         rng=rng)
+                                         rng=rng, program=prog_add)
 
                 mtl_all[prog_add] = mtl_add
                 pixlist[prog_add] = list(mtl_add.keys())
