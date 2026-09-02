@@ -137,6 +137,7 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
         for target in targetmask["desi_mask"]:
             bit = 2**target[1]
             name = target[0]
+            if name in CALIB_TARGS: continue
 
             this_target = (mtl_updates["DESI_TARGET"] & bit) != 0
 
