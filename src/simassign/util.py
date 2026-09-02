@@ -7,7 +7,7 @@ from desimodel.footprint import tiles2pix
 from desitarget.targetmask import  obsconditions
 
 # Non-DESI outside imports
-from astropy.table import Table, unique
+from astropy.table import Table, unique, vstack
 import healpy as hp
 from matplotlib.patches import Path as mpPath
 import numpy as np
@@ -331,7 +331,7 @@ def targets_in_tile(targs, tile_center):
 
 # Generate target files for each of the tiles and save them to
 # outdir / pass_num. Also generate associated tile file.
-def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=True):
+def generate_target_files(targs, calib_targs, tiles, out_dir, night=1, verbose=False, trunc=True):
     """
     Given a set of targets and a set of tiles, generate the necessary
     files on disk that encode which targets are accessible by each tile.
@@ -343,6 +343,13 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
         The data model is largely agnostic, but should include at minimum the
         columns "RA" and "DEC" defining each target position. Keys of the dictionary
         should be the programs in the tiles table.
+
+    calib_targs : dict of :class:`~numpy.array` or :class:`~astropy.table.Table`
+        Dictioanry of numpy rec arrays or astropy Tables storing the target definition.
+        The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each target position. Keys of the dictionary
+        should be the type of calibration target. These targets are included
+        on every program tile for programs in targs.
 
     tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
@@ -388,8 +395,12 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
         prog = tile["PROGRAM"]
         if trunc:
             tile_targs = targets_in_tile(targs[prog], (tile["RA"], tile["DEC"]))
+            calib_tile_targs = vstack([targets_in_tile(calib_targs[p], (tile["RA"], tile["DEC"])) for p in calib_targs.keys()])
         else:
             tile_targs = targs[prog]
+            calib_tile_targs = vstack([calib_targs[p] for p in calib_targs.keys()])
+
+        tile_targs = vstack([tile_targs, calib_tile_targs])
 
         target_filename = save_loc / f"targets-{tileid}.fits"
         if verbose: print(f"Writing {len(tile_targs)} to {target_filename}")

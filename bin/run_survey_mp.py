@@ -103,6 +103,8 @@ loaded_from_checkpoint = False
 # script may have interrupted when the catalog was still being generated, and
 # we may attempt an incomplete checkpoint load.
 mtl_all = {}
+mtl_calib = {}
+calib_progs = ["STD", "SKY"]
 pixlist = {}
 curr_tid = 0
 if hp_base.is_dir(): #and fba_base.is_dir():
@@ -110,8 +112,11 @@ if hp_base.is_dir(): #and fba_base.is_dir():
     timestamps = []
     for prog_dir in hp_base.glob("*"):
         prog = prog_dir.name.upper()
-        mtl_all[prog] = load_mtl_all(prog_dir, as_dict=True, nproc=args.nproc)
-        timestamps.append([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all[prog].values()])
+        if prog in calib_progs:
+            mtl_calib[prog] = load_mtl_all(prog_dir, as_dict=True, nproc=args.nproc)
+        else:
+            mtl_all[prog] = load_mtl_all(prog_dir, as_dict=True, nproc=args.nproc)
+            timestamps.append([np.sort(tbl["TIMESTAMP"])[-1] for tbl in mtl_all[prog].values()])
 
     last_timestamp = np.sort(np.concatenate(timestamps))[-1]
     last_timestamp = last_timestamp[:10] # Only need the date, not the time
@@ -129,9 +134,6 @@ if hp_base.is_dir(): #and fba_base.is_dir():
         catalogs_to_add = catalogs_to_add[keep]
 
 else:
-    if args.stds is not None:
-        stds_catalog = Table.read(args.stds)
-
     for catalog in args.catalog:
         tbl = Table.read(catalog)
 
@@ -152,15 +154,22 @@ else:
         log.details(f"Using {len(tbl)} {prog=} targets...")
         log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
 
-        if args.stds is not None:
-            mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog,
-                                           as_dict=True, targetmask=targetmask,
-                                           nproc=args.nproc, rng=rng, program=prog,
-                                           start_id=curr_tid)
-        else:
-            mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True,
-                                           targetmask=targetmask, nproc=args.nproc,
-                                           rng=rng, program=prog, start_id=curr_tid)
+        # if args.stds is not None:
+        #     mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog,
+        #                                    as_dict=True, targetmask=targetmask,
+        #                                    nproc=args.nproc, rng=rng, program=prog,
+        #                                    start_id=curr_tid)
+        # else:
+        mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True,
+                                       targetmask=targetmask, nproc=args.nproc,
+                                       rng=rng, program=prog, start_id=curr_tid)
+        curr_tid += len(tbl)
+
+    if args.stds is not None:
+        tbl = Table.read(args.stds)
+        mtl_calib["STD"] = initialize_mtl(tbl, args.outdir, as_dict=True, cal_type="STD",
+                                        targetmask=targetmask, nproc=args.nproc,
+                                        rng=rng, start_id=curr_tid)
         curr_tid += len(tbl)
 
 # Use this to get all tiles that touch the given zone, not just ones that only
@@ -331,19 +340,22 @@ with Pool(args.nproc) as p:
         # The "if prog in tiles_subset" helps catch if a specific prog is not
         # observed on a given night.
         # NOTE: hpx_nights.keys() is guaranteed to always be a subset of mtl_all.keys() because of this.
-        hpx_night = {prog: tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"][tiles_subset["PROGRAM"] == prog]) for prog in mtl_all.keys() if prog in tiles_subset["PROGRAM"]}
+        night_prog = tiles_subset["PROGRAM"]
+        hpx_night = {prog: tiles2pix(nside, tiles_subset["TILEID", "RA", "DEC"][tiles_subset["PROGRAM"] == prog]) for prog in mtl_all.keys() if prog in night_prog}
         hpx_night = {k: v[np.isin(v, pixlist[k])] for k, v in hpx_night.items()} # The "fuzzy" nature of tiles 2 pix might return healpix we don't have targets in
+        all_hpx_night = np.concatenate(list(hpx_night.values()))
         log.details(f"Night {i} {timestamp}: {len(tiles_subset)} tiles to run")
         # if len(hpx_night) == 0: continue
         # Deduplicate the MTL to get only the most recent information for each target.
         # TODO run fiberassign in a way that we can skip saving target files.
         t_start_curr = time.time()
         curr_mtl = {prog: deduplicate_mtl(vstack([mtl_all[prog][hpx] for hpx in hpx_night[prog]])) for prog in hpx_night.keys()}
+        calib_mtl = {prog: vstack([v for k, v in mtl_calib[prog].items() if k in all_hpx_night]) for prog in mtl_calib.keys()}
         t_end_curr = time.time()
         times["gen_curr_mtl"].append(t_end_curr - t_start_curr)
         log.details(f"Gen curr mtl took {t_end_curr - t_start_curr} seconds...")
         # TODO send night as TIMESTAMP_YMD instead of i to save by night date instead of an arbitrary int.
-        targ_files, tile_files, ntargs_on_tile = generate_target_files(curr_mtl, tiles_subset, base_dir, i)
+        targ_files, tile_files, ntargs_on_tile = generate_target_files(curr_mtl, calib_mtl, tiles_subset, base_dir, i)
 
         ntargs_on_tile = np.asarray(ntargs_on_tile)
         targ_files, tile_files = np.asarray(targ_files), np.asarray(tile_files)

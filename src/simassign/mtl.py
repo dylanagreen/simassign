@@ -222,10 +222,10 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
+def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
                    as_dict=False, targetmask=None, nproc=1, start_id=0,
                    timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701),
-                   program="DARK"):
+                   program=None):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -249,11 +249,10 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         and saved in per healpixel sub-MTLs. Defaults to None, which does
         not save the MTL to disk.
 
-    stds_catalog : str or :class:`~pathlib.Path`, optional
-        If given, the a catalog that contains standard stars. Standard
-        stars are appended to the input table before MTL generation. Only
-        standard stars that lie in the healpix covering base_tbl are kept.
-        Defaults to None.
+    cal_type : str, optional
+        If given, indciates that this table is a table of calibration targets.
+        The given string will be set as the PROGRAM type in the header, and
+        can be any value but ideally should be STANDARD or SKY.
 
     return_mtl_all : bool, optional
         Whether to return the initialized, concatenated mtl_all or not. In
@@ -292,7 +291,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         reproducibility. Defaults to a newly instantiated one with see 91701.
 
     program : str, optional
-        The program directory to save this MTL to, defaults to "DARK".
+        The program directory to save this MTL to, defaults to None.
 
     Returns
     -------
@@ -329,12 +328,21 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["NUMOBS"] = 0
     tbl["OBSCONDITIONS"] = 0
     tbl["TARGET_STATE"] = "UNOBS"
-    tbl["PRIORITY_INIT"] = 3400
-    tbl["PRIORITY"] = 3400
+    tbl["PRIORITY_INIT"] = 1 # Calibration types will get this default priorty
+    tbl["PRIORITY"] = 1 # Calibration types will get this default priorty
 
     tbl["SUBPRIORITY"] = rng.uniform(size=len(tbl))
-    tbl.meta["PROGRAM"] = program
+    if cal_type is not None:
+        tbl.meta["PROGRAM"] = cal_type
+        tbl["TARGET_STATE"] = cal_type
+        # Observe calibration targets on every tile. This may not be strictly necessary.
+        for oc in targetmask["obsconditions"]:
+            tbl["OBSCONDITIONS"] += (2**oc[1])
+        program = cal_type
+    else:
+        tbl.meta["PROGRAM"] = program
 
+    # TODO make nside a paramter.
     nside = 64
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
     hpx_data = hp.ang2pix(nside, theta, phi, nest=True)
@@ -344,20 +352,20 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     using_qso_target = "QSO_TARGET" in tbl.colnames
     using_lbg_target = "LBG_TARGET" in tbl.colnames
     using_xlg_target = "XLG_TARGET" in tbl.colnames
-    if stds_tbl is not None:
-        theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
-        hpx = hp.ang2pix(nside, theta, phi, nest=True)
-        stds_tbl["HEALPIX"] = hpx
-        keep_stds = np.isin(hpx, pixlist)
-        keep_cols = tbl.colnames
+    # if stds_tbl is not None:
+    #     theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
+    #     hpx = hp.ang2pix(nside, theta, phi, nest=True)
+    #     stds_tbl["HEALPIX"] = hpx
+    #     keep_stds = np.isin(hpx, pixlist)
+    #     keep_cols = tbl.colnames
 
-        if using_qso_target:
-            stds_tbl["QSO_TARGET"] = 0
-        if using_lbg_target:
-            stds_tbl["LBG_TARGET"] = 0
-        if using_xlg_target:
-            stds_tbl["XLG_TARGET"] = 0
-        tbl = vstack([stds_tbl[keep_stds][keep_cols], tbl])
+    #     if using_qso_target:
+    #         stds_tbl["QSO_TARGET"] = 0
+    #     if using_lbg_target:
+    #         stds_tbl["LBG_TARGET"] = 0
+    #     if using_xlg_target:
+    #         stds_tbl["XLG_TARGET"] = 0
+    #     tbl = vstack([stds_tbl[keep_stds][keep_cols], tbl])
 
     if targetmask is None:
         targetmask = load_target_yaml("targetmask.yaml")
