@@ -225,7 +225,7 @@ def load_target_yaml(fname):
 def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
                    as_dict=False, targetmask=None, nproc=1, start_id=0,
                    timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701),
-                   program=None):
+                   program=None, healpixels_to_load=None):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -293,6 +293,11 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
     program : str, optional
         The program directory to save this MTL to, defaults to None.
 
+    healpixels_to_load : np.arraylike
+        An array of healpixels to load from the input catalog. Useful if
+        this is a catalog of calibration targets and we want to subselect
+        to only calibration targets in the survey area. Defaults to None.
+
     Returns
     -------
     :class:`~numpy.array` or :class:`~astropy.table.Table` or dict
@@ -333,6 +338,7 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
 
     tbl["SUBPRIORITY"] = rng.uniform(size=len(tbl))
     if cal_type is not None:
+        # TODO we blindly trust that the DESI_TARGET bit is set to SKY/STD etc. Should we not?
         tbl.meta["PROGRAM"] = cal_type
         tbl["TARGET_STATE"] = cal_type
         # Observe calibration targets on every tile. This may not be strictly necessary.
@@ -347,6 +353,13 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
     hpx_data = hp.ang2pix(nside, theta, phi, nest=True)
     tbl["HEALPIX"] = hpx_data
+
+    if healpixels_to_load is not None:
+        keep = np.isin(hpx_data, healpixels_to_load)
+        tbl = tbl[keep]
+        hpx_data = hpx_data[keep]
+        print(f"Cut {np.sum(~keep)} targets not in input healpixel list")
+
     pixlist = np.unique(hpx_data)
 
     using_qso_target = "QSO_TARGET" in tbl.colnames

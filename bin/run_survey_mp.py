@@ -33,6 +33,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save the mtl* and fba* output files.")
 parser.add_argument("-t", "--tiles", required=True, type=str, help="tiling to use for observations.")
 parser.add_argument("--stds", required=False, type=str, help="base location of standards catalog.")
+parser.add_argument("--skies", required=False, type=str, help="base location of sky catalog.")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
@@ -69,7 +70,18 @@ if args.config is not None:
 else:
     targetmask = load_target_yaml("targetmask.yaml")
 
+def load_calibration(cal_loc, cal_type, pixlist, start_id):
+    tbl = Table.read(cal_loc)
+    mtl = initialize_mtl(tbl, args.outdir, as_dict=True, cal_type=cal_type,
+                                targetmask=targetmask, nproc=args.nproc,
+                                rng=rng, start_id=start_id, healpixels_to_load=pixlist)
+    # Some targs are cut by pixlist but this is fine, they're still unique
+    return mtl, len(tbl)
+
+
 sciencemask = target_mask_to_int(targetmask)
+skymask = target_mask_to_int(targetmask, "SKY")
+stdmask = target_mask_to_int(targetmask, "STD")
 
 log = get_log()
 log.details(f"Using {targetmask}")
@@ -165,12 +177,14 @@ else:
                                        rng=rng, program=prog, start_id=curr_tid)
         curr_tid += len(tbl)
 
+    full_pixlist = np.unique(np.concatenate(list(pixlist.values())))
     if args.stds is not None:
-        tbl = Table.read(args.stds)
-        mtl_calib["STD"] = initialize_mtl(tbl, args.outdir, as_dict=True, cal_type="STD",
-                                        targetmask=targetmask, nproc=args.nproc,
-                                        rng=rng, start_id=curr_tid)
-        curr_tid += len(tbl)
+        mtl_calib["STD"], ntarg = load_calibration(args.stds, "STD", full_pixlist, curr_tid)
+        curr_tid += ntarg
+
+    if args.skies is not None:
+        mtl_calib["SKY"], ntarg = load_calibration(args.skies, "SKY", full_pixlist, curr_tid)
+        curr_tid += ntarg
 
 # Use this to get all tiles that touch the given zone, not just ones that only
 # have a center that falls inside the zone.
@@ -200,6 +214,10 @@ def fiberassign_tile(targ_loc, tile_loc, runtime, tileid, tile_done=True, design
               "1",
               "--sciencemask",
               str(sciencemask),
+              "--skymask",
+              str(skymask),
+              "--stdmask",
+              str(stdmask),
               "--ha",
               str(design_ha) # Default is zero so this shouldn't change behaviour unless explicitly passed
     ]
@@ -260,6 +278,9 @@ tiles = tiles[np.isin(tiles["PROGRAM"], list(mtl_all.keys()))]
 
 not_added = True
 log.details(f"Starting year: {cur_year}")
+# This is a helper variable for tracking what new healpixel coverage is added
+# later for adding in calibration targets.
+full_pixlist = np.unique(np.concatenate(list(pixlist.values())))
 t2 = time.time()
 with Pool(args.nproc) as p:
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
@@ -319,11 +340,35 @@ with Pool(args.nproc) as p:
                 pixlist[prog_add] = list(mtl_add.keys())
 
             curr_tid += len(tbl_add)
-            del mtl_add # Free up some memory.
 
             # Remove this catalog from the "to add"
             dates_to_add = dates_to_add[1:]
             catalogs_to_add = catalogs_to_add[1:]
+
+            # Add some calibration targets if necessary
+            new_pixlist = np.unique(np.concatenate(list(pixlist.values())))
+            added = ~np.isin(new_pixlist, full_pixlist)
+            if np.sum(added) > 0:
+                diff_pixlist = new_pixlist[added]
+                if args.stds is not None:
+                    mtl_add, ntarg = load_calibration(args.stds, "STD", diff_pixlist, curr_tid)
+                    curr_tid += ntarg
+                    # Since the healpixels are unique (we kept only new healpixels)
+                    # this should concatenate without replacement
+                    log.details(f"Adding STD, increasing from {len(mtl_calib["STD"].keys())} healpixels...")
+                    mtl_calib["STD"] = mtl_calib["STD"] | mtl_add
+                    log.details(f"..to {len(mtl_calib["STD"].keys())} healpixels")
+
+                if args.skies is not None:
+                    mtl_add, ntarg = load_calibration(args.skies, "SKY", diff_pixlist, curr_tid)
+                    curr_tid += ntarg
+                    # Since the healpixels are unique (we kept only new healpixels)
+                    # this should concatenate without replacement
+                    log.details(f"Adding SKY, increasing from {len(mtl_calib["SKY"].keys())} healpixels...")
+                    mtl_calib["SKY"] = mtl_calib["SKY"] | mtl_add
+                    log.details(f"..to {len(mtl_calib["SKY"].keys())} healpixels")
+
+            del mtl_add # Free up some memory.
 
         log.details(f"Beginning night {i} {timestamp} by loading tiling...")
         night_year = timestamp[:4]

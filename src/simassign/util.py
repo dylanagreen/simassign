@@ -1048,7 +1048,7 @@ def generate_stripe_tiles(srvys, num_tiles=2500):
     tiles["RA"][shift] -= 360
     return tiles
 
-def target_mask_to_int(targetmask):
+def target_mask_to_int(targetmask, targtype="SCIENCE"):
     """
     Convert the bits that define targets in targetmask to a single integer
 
@@ -1056,6 +1056,9 @@ def target_mask_to_int(targetmask):
     ----------
     targetmask : dict
         Dictionary defining the targetmask from, for example, load_target_yaml.
+    targtype : str, optional
+        String defining what kind of targets to get the integer for. Default
+        is SCIENCE, for all science targets. Other options include STD or SKY.
 
     Returns
     -------
@@ -1067,11 +1070,16 @@ def target_mask_to_int(targetmask):
     -----
 
     This is a convenience function to use for fiberassign, which can take in
-    an integer reprsenting which bits to use as science targets in an input
+    an integer reprsenting which bits to use as specific targets in an input
     catalog.
     """
-    science_mask = 0
+    mask = 0
+    calib_targs = ["STD", "SKY"]
     for row in targetmask["desi_mask"]:
-        science_mask += 2 ** (row[1])
+        if (targtype == "SCIENCE") and (row[0] not in calib_targs):
+            mask += 2 ** (row[1])
+        elif row[0] == targtype:
+            # The case where we want only the calib targets.
+            mask += 2 ** (row[1])
 
-    return science_mask
+    return mask
