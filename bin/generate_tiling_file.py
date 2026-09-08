@@ -18,10 +18,6 @@ from pathlib import Path
 from simassign.util import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
-parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
-parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
-parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
 parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
@@ -144,17 +140,6 @@ else:
         if (args.fourex or args.twoex) and not args.collapse:
             tileids = np.arange(len(tiles)) + i * 10000
             tiles["TILEID"] = tileids
-
-        # Booleans for determining which tiles to keep.
-        # Margin makes sure we don't end up with tiles that are "in bounds"
-        # but because of the circular shape are off the corner of the
-        # region and don't actually cover any of the targets (which crashes fiberassign)
-        if (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
-            # Only run this if the box is actually passed in.
-            tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-            tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-            not_in_zone = ~(tiles_in_ra & tiles_in_dec)
-            tiles["IN_DESI"][not_in_zone] = False
 
         if args.trim:
             if args.use_healpix:
