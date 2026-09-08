@@ -90,8 +90,7 @@ if args.survey is not None:
 
 
 if args.stripes:
-    assert not args.use_healpix, "Using healpixels to check if tiles are in the survey area is not currently supported for stripe tilings."
-    tiles = generate_stripe_tiles(survey, args.ntiles)
+    tiles = generate_stripe_tiles(survey, args.ntiles, args.healpix)
 else:
     # Load the geometry superset to get the tiling of the entire sky.
     tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
@@ -140,7 +139,7 @@ else:
         print("PASSNUM", passnum)
         tiles = rotate_tiling(base_tiles, passnum)
 
-        # IF we're not collapsing but we are doing 4x, give each "pass" a unique
+        # If we're not collapsing but we are doing 4x, give each "pass" a unique
         # tileid, so that we keep all four passes on joins.
         if (args.fourex or args.twoex) and not args.collapse:
             tileids = np.arange(len(tiles)) + i * 10000

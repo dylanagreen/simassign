@@ -952,6 +952,7 @@ def get_stripe_bounds(srvy, delta_dec=2.8):
 
 def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=None, delta_dec=2.8):
     # TODO docstring
+    # TODO nside as a parameter
     tile_rad = get_tile_radius_deg()
     min_dec = np.min(hpx_tbl["DEC"])
     max_dec = np.max(hpx_tbl["DEC"])
