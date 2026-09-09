@@ -29,7 +29,7 @@ parser.add_argument("--starting_pass", required=False, type=int, default=0, help
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
 parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
-parser.add_argument("--start_decs", required=False, type=int, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
+parser.add_argument("--start_decs", required=False, type=float, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
 
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
