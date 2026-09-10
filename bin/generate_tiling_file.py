@@ -15,29 +15,22 @@ from desimodel.focalplane import get_tile_radius_deg
 from simassign.util import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ramax", required=False, type=float, help="maximum RA angle to assign over.")
-parser.add_argument("--ramin", required=False, type=float, help="minimum RA angle to assign over.")
-parser.add_argument("--decmax", required=False, type=float, help="maximum DEC angle to assign over.")
-parser.add_argument("--decmin", required=False, type=float, help="minimum DEC angle to assign over.")
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
-parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
 parser.add_argument("--stripes", required=False, action="store_true", help="use stripe tiling instead of DESI-I-like symmetrical tiling.")
 parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
+parser.add_argument("--n_repeat", required=False, type=int, default=1, help="number of times to repeat the same centers. If n_repeat > 1, max tiles is only considered for 1 'repeat'")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
 parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
+parser.add_argument("--start_decs", required=False, type=float, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
 group_trim.add_argument("--trim_scale", type=float, help="trim by this multiplier of the radius.")
-
-group = parser.add_mutually_exclusive_group(required=False)
-group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
-group.add_argument("--twoex", action="store_true", help="take two exposures of a single tiling rather than two unique tilings.")
 
 group_pass = parser.add_mutually_exclusive_group(required=True)
 group_pass.add_argument("--npass", type=int, help="number of assignment passes to do.")
@@ -79,16 +72,18 @@ elif args.trim_scale:
 
 survey = None
 if args.survey is not None:
-    try:
-        survey = [np.load(args.survey)]
-    except ValueError: # Survey is multiple polygons and was saved as an object array.
-        survey = np.load(args.survey, allow_pickle=True)
-        survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
+    if args.survey.endswith("fits"):
+        survey = Table.read(args.survey)
+    else:
+        try:
+            survey = [np.load(args.survey)]
+        except ValueError: # Survey is multiple polygons and was saved as an object array.
+            survey = np.load(args.survey, allow_pickle=True)
+            survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
 
 
 if args.stripes:
-    assert not args.use_healpix, "Using healpixels to check if tiles are in the survey area is not currently supported for stripe tilings."
-    tiles = generate_stripe_tiles(survey, args.ntiles)
+    tiles = generate_stripe_tiles(survey, args.ntiles, args.use_healpix, args.start_decs)
 else:
     # Load the geometry superset to get the tiling of the entire sky.
     tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
@@ -128,31 +123,9 @@ else:
     for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
         print(f"Generating tiling for pass {i}...")
 
-        if args.fourex: # Repeat each tiling four times before moving to the next one
-            passnum = (i + 3) // 4
-        elif args.twoex:
-            passnum = (i + 1) // 2
-        else:
-            passnum = i
+        passnum = i
         print("PASSNUM", passnum)
         tiles = rotate_tiling(base_tiles, passnum)
-
-        # IF we're not collapsing but we are doing 4x, give each "pass" a unique
-        # tileid, so that we keep all four passes on joins.
-        if (args.fourex or args.twoex) and not args.collapse:
-            tileids = np.arange(len(tiles)) + i * 10000
-            tiles["TILEID"] = tileids
-
-        # Booleans for determining which tiles to keep.
-        # Margin makes sure we don't end up with tiles that are "in bounds"
-        # but because of the circular shape are off the corner of the
-        # region and don't actually cover any of the targets (which crashes fiberassign)
-        if (args.ramin is not None) and (args.ramax is not None) and (args.decmin is not None) and (args.decmax is not None):
-            # Only run this if the box is actually passed in.
-            tiles_in_ra = (tiles["RA"] >= (args.ramin - margin)) & (tiles["RA"] <= (args.ramax + margin))
-            tiles_in_dec = (tiles["DEC"] >= (args.decmin - margin)) & (tiles["DEC"] <= (args.decmax + margin))
-            not_in_zone = ~(tiles_in_ra & tiles_in_dec)
-            tiles["IN_DESI"][not_in_zone] = False
 
         if args.trim:
             if args.use_healpix:
@@ -164,8 +137,9 @@ else:
 
         cur_tiles += np.sum(tiles["IN_DESI"])
 
-        # IF we're still below our requested target number of tiles, add this pass.
+        # If we're still below our requested target number of tiles, add this pass.
         # We do this by pass because we don't want to do any incomplete passes.
+        # TODO add a fudge factor that would allow an additional pass if we're say less than fudge_percent above the max.
         if args.ntiles and (cur_tiles > args.ntiles):
             break
         else:
@@ -173,10 +147,25 @@ else:
 
     tiles = vstack(pass_tilings)
 
+# Repeat tile centers multiple times (for example, to simulate the movable collimator)
+if args.n_repeat > 1:
+    print(f"Adding repeats. Original length {len(tiles)}")
+    repeats = [tiles]
+    max_pass = np.max(tiles["PASS"])
+    tileids_per_pass = 10000
+    for n in range(args.n_repeat - 1):
+        print(f"Repeating {n + 1}")
+        extra_pass = Table(tiles, copy=True)
+
+        extra_pass["PASS"] += max_pass
+        extra_pass["TILEID"] += max_pass * tileids_per_pass
+
+        max_pass += max_pass
+        repeats.append(extra_pass)
+
+    tiles = vstack(repeats)
+
 tiles = add_tile_cols(tiles)
-if args.collapse:
-    tiles = unique(tiles, "TILEID")
-    tiles.sort("TILEID")
 
 n_tiles = np.sum(tiles["IN_DESI"])
 print(f"{n_tiles} tiles IN_DESI")

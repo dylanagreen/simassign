@@ -30,6 +30,7 @@ data_tbl["DESI_TARGET"] = 2 ** args.desitarget
 
 data_tbl.meta["PROGRAM"] = args.program
 
+print(f"{len(data_tbl)} targets to write.")
 if args.survey is not None:
     try:
         survey = np.load(args.survey)

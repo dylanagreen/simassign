@@ -962,6 +962,95 @@ def get_stripe_bounds(srvy, delta_dec=2.8):
 
     return decs, ras_left, ras_right, total_width
 
+
+def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=None, delta_dec=2.8):
+    # TODO docstring
+    # TODO nside as a parameter
+    tile_rad = get_tile_radius_deg()
+    min_dec = np.min(hpx_tbl["DEC"])
+    max_dec = np.max(hpx_tbl["DEC"])
+
+    hp_width = np.rad2deg(hp.nside2resol(128))
+
+    dec_pos_down = np.arange(start_dec, min_dec, -delta_dec)
+    dec_pos_up = np.arange(start_dec, max_dec, delta_dec)
+
+    # Sorts the combined list and removes the duplicated starting tile
+    dec_pos = np.unique(np.concatenate([dec_pos_down, dec_pos_up]))
+
+    def get_ra_minmax(red_tbl):
+        # For each dec pos, finds the healpixel with the closest declination
+        # and lowest RA, to define the left edge of the tiling strategy.
+        # Lexsort, for some reason, sorts by the second value first, then the first value after.
+        sort_idcs = np.lexsort([red_tbl["RA"], np.abs(red_tbl["DEC"] - dec)])
+        ra_min = red_tbl[sort_idcs[0]]["RA"]
+
+        # Sorting on 360 - RA will reverse the sorting on the RA, but not the DEc
+        sort_idcs = np.lexsort([360 - red_tbl["RA"], np.abs(red_tbl["DEC"] - dec)])
+        ra_max = red_tbl[sort_idcs[0]]["RA"]
+        return ra_min, ra_max
+
+    ra_pos_min = []
+    ra_pos_max = []
+
+    # These are if the split_ra indicates an actually disjoint set.
+    extra_ra_min = []
+    extra_ra_max = []
+    extra_dec = []
+    for dec in dec_pos:
+        ra_min, ra_max = get_ra_minmax(hpx_tbl)
+        if (split_ra is not None) and (ra_max > split_ra):
+            below_split = hpx_tbl["RA"] < split_ra
+            ra_below_min, ra_below_max = get_ra_minmax(hpx_tbl[below_split])
+            ra_above_min, ra_above_max = get_ra_minmax(hpx_tbl[~below_split])
+
+            # If the above min and below max are this close, the area is probably not disjoint.
+            if np.abs(ra_above_min - ra_below_max) < 4 * hp_width:
+                ra_pos_min.append(ra_below_min)
+                ra_pos_max.append(ra_above_max)
+            else:
+                # If not, this decpos will be for the lower area
+                # and we'll add to the extra stuff the upper area, and later
+                # sort by dec to get it in order again.
+                ra_pos_min.append(ra_below_min)
+                ra_pos_max.append(ra_below_max)
+
+                extra_ra_min.append(ra_above_min)
+                extra_ra_max.append(ra_above_max)
+                extra_dec.append(dec)
+        else:
+            ra_pos_min.append(ra_min)
+            ra_pos_max.append(ra_max)
+
+    if len(extra_ra_min) > 0:
+        ra_pos_min += extra_ra_min
+        ra_pos_max += extra_ra_max
+        dec_pos = np.concatenate([dec_pos, extra_dec])
+
+    ra_pos_min = np.asarray(ra_pos_min)
+    ra_pos_max = np.asarray(ra_pos_max)
+
+    # Sort by dec_pos. Shouldn't do anything if we didn't add any extra
+    # but it might if we do.
+    sorter = np.argsort(dec_pos)
+    dec_pos = dec_pos[sorter]
+    ra_pos_min = ra_pos_min[sorter]
+    ra_pos_max = ra_pos_max[sorter]
+
+    # The centers were originally determined at the RA of the center of the healpix.
+    # We now nudge the center of the tile towards the center of the footprint
+    # such that the edge of the file is at the edge of the footprint.
+    ra_pos_min = ra_pos_min - (hp_width / 2 - tile_rad)
+    ra_pos_max = ra_pos_max + (hp_width / 2 - tile_rad)
+
+    total_width = 0
+    cos_decs = np.cos(np.deg2rad(dec_pos))
+    for i in range(len(dec_pos)):
+        total_width += (ra_pos_max[i] - ra_pos_min[i]) * cos_decs[i]
+
+    return dec_pos, ra_pos_min, ra_pos_max, total_width
+
+
 def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_tiles=2500, dec_offset=0.02):
     cos_decs = np.cos(np.deg2rad(decs))
 
@@ -1010,13 +1099,24 @@ def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_ti
     row_num = np.asarray(row_num)
     return all_centers, row_num
 
-def generate_stripe_tiles(srvys, num_tiles=2500):
+def generate_stripe_tiles(srvys, num_tiles=2500, healpix=False, start_decs=None):
     decs = []
     ras_left = []
     ras_right = []
     total_width = 0
-    for srvy in srvys:
-        decs_srvy, ras_left_srvy, ras_right_srvy, total_width_srvy = get_stripe_bounds(srvy)
+    if healpix:
+        if "REGION" in srvys.colnames:
+            tbls = [srvys[srvys["REGION"] == i] for i in np.unique(srvys["REGION"])]
+        else:
+            tbls = [srvys]
+        assert len(start_decs) == len(tbls), "Must provide one starting declination for every footprint region"
+    else:
+        tbls = srvys
+    for i, srvy in enumerate(tbls):
+        if healpix:
+            decs_srvy, ras_left_srvy, ras_right_srvy, total_width_srvy = get_stripe_bounds_hpx(srvy, start_dec=start_decs[i])
+        else:
+            decs_srvy, ras_left_srvy, ras_right_srvy, total_width_srvy = get_stripe_bounds(srvy)
         decs.append(decs_srvy)
         ras_left.append(ras_left_srvy)
         ras_right.append(ras_right_srvy)
