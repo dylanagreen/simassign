@@ -152,10 +152,12 @@ else:
 
 # Repeat tile centers multiple times (for example, to simulate the movable collimator)
 if args.n_repeat > 1:
+    print(f"Adding repeats. Original length {len(tiles)}")
     repeats = [tiles]
     max_pass = np.max(tiles["PASS"])
     tileids_per_pass = 10000
-    for n in range(args.n_repeat):
+    for n in range(args.n_repeat - 1):
+        print(f"Repeating {n + 1}")
         extra_pass = Table(tiles, copy=True)
 
         extra_pass["PASS"] += max_pass
