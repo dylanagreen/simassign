@@ -25,11 +25,11 @@ parser.add_argument("--survey", required=False, type=str, default=None, help="us
 parser.add_argument("--add_tiledone", required=False, action="store_true", help="add TILEDONE column (for running without a simulated survey).")
 parser.add_argument("--stripes", required=False, action="store_true", help="use stripe tiling instead of DESI-I-like symmetrical tiling.")
 parser.add_argument("--starting_pass", required=False, type=int, default=0, help="pass to start generating from.")
+parser.add_argument("--n_repeat", required=False, type=int, default=1, help="number of times to repeat the same centers. If n_repeat > 1, max tiles is only considered for 1 'repeat'")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
 parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
 parser.add_argument("--start_decs", required=False, type=float, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
-
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -150,10 +150,23 @@ else:
 
     tiles = vstack(pass_tilings)
 
+# Repeat tile centers multiple times (for example, to simulate the movable collimator)
+if args.n_repeat > 1:
+    repeats = [tiles]
+    max_pass = np.max(tiles["PASS"])
+    tileids_per_pass = 10000
+    for n in range(args.n_repeat):
+        extra_pass = Table(tiles, copy=True)
+
+        extra_pass["PASS"] += max_pass
+        extra_pass["TILEID"] += max_pass * tileids_per_pass
+
+        max_pass += max_pass
+        repeats.append(extra_pass)
+
+    tiles = vstack(repeats)
+
 tiles = add_tile_cols(tiles)
-if args.collapse:
-    tiles = unique(tiles, "TILEID")
-    tiles.sort("TILEID")
 
 n_tiles = np.sum(tiles["IN_DESI"])
 print(f"{n_tiles} tiles IN_DESI")
