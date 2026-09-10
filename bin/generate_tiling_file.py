@@ -19,7 +19,6 @@ from simassign.util import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save generated tile file.")
-parser.add_argument("--collapse", required=False, action="store_true", help="collapse to unique tileids. Useful if running fourex, but don't need to 4x duplicate every tile.")
 parser.add_argument("--trim", required=False, action="store_true", help="trim tiling to survey area (that is, set IN_DESI=True only within survey area).")
 parser.add_argument("--starttime", required=False, type=str, default="2025-09-16T00:00:00+00:00", help="starting timestamp for the first tile")
 parser.add_argument("--survey", required=False, type=str, default=None, help="use the survey defined by the boundaries in this file rather than the nominal DESI 2 survey.")
@@ -35,10 +34,6 @@ parser.add_argument("--start_decs", required=False, type=float, nargs='*', help=
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
 group_trim.add_argument("--trim_scale", type=float, help="trim by this multiplier of the radius.")
-
-group = parser.add_mutually_exclusive_group(required=False)
-group.add_argument("--fourex", action="store_true", help="take four exposures of a single tiling rather than four unique tilings.")
-group.add_argument("--twoex", action="store_true", help="take two exposures of a single tiling rather than two unique tilings.")
 
 group_pass = parser.add_mutually_exclusive_group(required=True)
 group_pass.add_argument("--npass", type=int, help="number of assignment passes to do.")
@@ -131,20 +126,9 @@ else:
     for i in range(1 + args.starting_pass, max_pass + args.starting_pass):
         print(f"Generating tiling for pass {i}...")
 
-        if args.fourex: # Repeat each tiling four times before moving to the next one
-            passnum = (i + 3) // 4
-        elif args.twoex:
-            passnum = (i + 1) // 2
-        else:
-            passnum = i
+        passnum = i
         print("PASSNUM", passnum)
         tiles = rotate_tiling(base_tiles, passnum)
-
-        # If we're not collapsing but we are doing 4x, give each "pass" a unique
-        # tileid, so that we keep all four passes on joins.
-        if (args.fourex or args.twoex) and not args.collapse:
-            tileids = np.arange(len(tiles)) + i * 10000
-            tiles["TILEID"] = tileids
 
         if args.trim:
             if args.use_healpix:
@@ -156,8 +140,9 @@ else:
 
         cur_tiles += np.sum(tiles["IN_DESI"])
 
-        # IF we're still below our requested target number of tiles, add this pass.
+        # If we're still below our requested target number of tiles, add this pass.
         # We do this by pass because we don't want to do any incomplete passes.
+        # TODO add a fudge factor that would allow an additional pass if we're say less than fudge_percent above the max.
         if args.ntiles and (cur_tiles > args.ntiles):
             break
         else:
