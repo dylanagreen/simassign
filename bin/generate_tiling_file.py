@@ -80,15 +80,18 @@ elif args.trim_scale:
 
 survey = None
 if args.survey is not None:
-    try:
-        survey = [np.load(args.survey)]
-    except ValueError: # Survey is multiple polygons and was saved as an object array.
-        survey = np.load(args.survey, allow_pickle=True)
-        survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
+    if args.survey.endswith("fits"):
+        survey = Table.read(args.survey)
+    else:
+        try:
+            survey = [np.load(args.survey)]
+        except ValueError: # Survey is multiple polygons and was saved as an object array.
+            survey = np.load(args.survey, allow_pickle=True)
+            survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
 
 
 if args.stripes:
-    tiles = generate_stripe_tiles(survey, args.ntiles, args.healpix, args.start_decs)
+    tiles = generate_stripe_tiles(survey, args.ntiles, args.use_healpix, args.start_decs)
 else:
     # Load the geometry superset to get the tiling of the entire sky.
     tiles = load_tiles(onlydesi=False, tilesfile="tiles-geometry-superset.ecsv")
