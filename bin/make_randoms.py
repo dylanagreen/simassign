@@ -28,6 +28,7 @@ dec = np.rad2deg(dec)
 data_tbl = Table({"RA": ra, "DEC": dec,})
 data_tbl["DESI_TARGET"] = 2 ** args.desitarget
 
+print(f"{len(data_tbl)} targets to write.")
 if args.survey is not None:
     try:
         survey = np.load(args.survey)
