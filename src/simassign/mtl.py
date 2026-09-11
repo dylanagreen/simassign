@@ -359,7 +359,7 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
         keep = np.isin(hpx_data, healpixels_to_load)
         tbl = tbl[keep]
         hpx_data = hpx_data[keep]
-        print(f"Cut {np.sum(~keep)} targets not in input healpixel list")
+        log.details(f"Cut {np.sum(~keep)} calibration targets not in input healpixel list")
 
     pixlist = np.unique(hpx_data)
 
@@ -472,7 +472,8 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
 
         # If the table is sorted, then the number of appearances of each
         # healpixel can be used to construct slices of the table, which avoids
-        # the costly equivalency check for every healpixel.
+        # the costly equivalency check for every healpixel. This should also
+        # be relatively invariant to input table size unlike the orignal comparison method.
         pixlist, c = np.unique_counts(tbl["HEALPIX"])
         c = np.concatenate([[0], c])
         spacings = np.cumsum(c)
