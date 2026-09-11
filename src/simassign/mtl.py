@@ -469,14 +469,20 @@ def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
 
     if as_dict:
         tbl.sort(["HEALPIX", "TARGETID"]) # This will make the next line slightly quicker... I think.
-        mtl_all = {}
-        for hpx in pixlist:
-            mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
-            # mtl_all[hpx].sort("TARGETID")
 
-            log.details(f"Generated {hpx}")
-            fname =  f"mtl-{program.lower()}-hp-{hpx}.ecsv"
-            if save_dir is not None:
+        # If the table is sorted, then the number of appearances of each
+        # healpixel can be used to construct slices of the table, which avoids
+        # the costly equivalency check for every healpixel.
+        pixlist, c = np.unique_counts(tbl["HEALPIX"])
+        c = np.concatenate([[0], c])
+        spacings = np.cumsum(c)
+        log.details("Generating mtl_all dictionary...")
+        mtl_all = {h: tbl[s_start:s_end] for h, s_start, s_end in zip(pixlist, spacings[:-1], spacings[1:])}
+        log.details("Dictionary complete.")
+
+        if save_dir is not None:
+            for hpx in pixlist:
+                fname =  f"mtl-{program.lower()}-hp-{hpx}.ecsv"
                 mtl_all[hpx].write(hp_base / fname, overwrite=True)
                 log.details(f"Saved to {str(hp_base / fname)}")
 
