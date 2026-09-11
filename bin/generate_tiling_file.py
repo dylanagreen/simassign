@@ -25,6 +25,7 @@ parser.add_argument("--starting_pass", required=False, type=int, default=0, help
 parser.add_argument("--n_repeat", required=False, type=int, default=1, help="number of times to repeat the same centers. If n_repeat > 1, max tiles is only considered for 1 'repeat'")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
+# TODO make consistent with trim catalog to survey with healpix as an alternate to survey entirely.
 parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
 parser.add_argument("--start_decs", required=False, type=float, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
 
@@ -109,8 +110,7 @@ else:
     # Use npass as the max_pass, otherwise try estimate how many passes
     # we will need
     if args.npass:
-        if args.twoex: max_pass = (args.npass + 1) // 2
-        else: max_pass = args.npass + 1
+        max_pass = args.npass + 1
     else:
         print("n_base", n_base)
         max_pass = args.ntiles // n_base + 1 # Add one because we iterate from 1 upwards.
