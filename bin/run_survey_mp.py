@@ -280,13 +280,17 @@ t2 = time.time()
 with Pool(args.nproc) as p:
     if need_to_save:
         log.details("Saving at start...")
+        progs_to_save = (list(mtl_all.keys()) + list(mtl_calib.keys()))
+        log.details(progs_to_save)
         # We didn't create these on MTL creation so do it now.
-        for prog in mtl_all.keys():
+        for prog in progs_to_save:
             (hp_base / prog.lower()).mkdir(parents=True, exist_ok=True)
 
         save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in pixlist[prog]]
         p.starmap(save_mtl, save_params)
 
+        save_params = [(mtl_calib[prog][hpx], hpx) for prog in mtl_calib.keys() for hpx in full_pixlist]
+        p.starmap(save_mtl, save_params)
 
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
         if loaded_from_checkpoint and timestamp <= last_timestamp:
