@@ -70,7 +70,7 @@ else:
 
 def load_calibration(cal_loc, cal_type, pixlist, start_id):
     tbl = Table.read(cal_loc)
-    mtl = initialize_mtl(tbl, args.outdir, as_dict=True, cal_type=cal_type,
+    mtl = initialize_mtl(tbl, None, as_dict=True, cal_type=cal_type,
                                 targetmask=targetmask, nproc=args.nproc,
                                 rng=rng, start_id=start_id, healpixels_to_load=pixlist)
     # Some targs are cut by pixlist but this is fine, they're still unique
@@ -97,7 +97,7 @@ rng = np.random.default_rng(args.seed)
 
 # Directories for later
 base_dir = Path(args.outdir)
-hp_base = base_dir / "hp" / "main" #/ "dark"
+hp_base = base_dir / "hp" / "main"
 fba_base = base_dir / "fba"
 
 tile_loc = Path(args.tiles)
@@ -118,6 +118,7 @@ calib_progs = ["STD", "SKY"]
 pixlist = {}
 curr_tid = 0
 # TODO: check we've loaded one checkpointed MTL for every catalog in the original input...
+need_to_save = False
 if hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
     timestamps = []
@@ -145,6 +146,8 @@ if hp_base.is_dir(): #and fba_base.is_dir():
         catalogs_to_add = catalogs_to_add[keep]
 
 else:
+    # We won't save on creation, instead we'll use the pool to save in parallel.
+    need_to_save = True
     for catalog in args.catalog:
         tbl = Table.read(catalog)
 
@@ -164,7 +167,7 @@ else:
 
         log.details(f"Using {len(tbl)} {prog=} targets...")
         log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
-        mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True,
+        mtl_all[prog] = initialize_mtl(tbl, None, as_dict=True,
                                        targetmask=targetmask, nproc=args.nproc,
                                        rng=rng, program=prog, start_id=curr_tid)
         curr_tid += len(tbl)
@@ -275,6 +278,16 @@ log.details(f"Starting year: {cur_year}")
 full_pixlist = np.unique(np.concatenate(list(pixlist.values())))
 t2 = time.time()
 with Pool(args.nproc) as p:
+    if need_to_save:
+        log.details("Saving at start...")
+        # We didn't create these on MTL creation so do it now.
+        for prog in mtl_all.keys():
+            (hp_base / prog.lower()).mkdir(parents=True, exist_ok=True)
+
+        save_params = [(mtl_all[prog][hpx], hpx) for prog in mtl_all.keys() for hpx in pixlist[prog]]
+        p.starmap(save_mtl, save_params)
+
+
     for i, timestamp in enumerate(np.unique(tiles["TIMESTAMP_YMD"])):
         if loaded_from_checkpoint and timestamp <= last_timestamp:
             log.details(f"Skipped timestamp {timestamp} <= {last_timestamp} (checkpoint)")
