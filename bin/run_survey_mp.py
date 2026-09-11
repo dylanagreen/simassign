@@ -37,12 +37,10 @@ parser.add_argument("--skies", required=False, type=str, help="base location of 
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use.")
 parser.add_argument("--config", required=False, type=str, help="configuration yaml file with target parameters. At minimum this should contain everything in targetmask.yaml, but in the future could contain additional run parameters.")
 parser.add_argument("--danger", required=False, action="store_true", help="you want this to run as fast as possible, so do everything dangerously.")
-parser.add_argument("--resetmtl", required=False, action="store_true", help="reset the mtl every other night for reassignment tests.")
 parser.add_argument("--seed", required=False, type=int, default=100721, help="seed to use for randomness")
 parser.add_argument("--catalog", type=str, nargs="*", required=True, help="Catalog(s) of objects to use for fiber assignment. Expect that the PROGRAM value is written to the fits headers.")
 parser.add_argument("--catalog_later", type=str, nargs="*", help="catalog(s) of objects to use for fiber assignment, that will be added later in the survey.")
 parser.add_argument("--later_starts", type=str, nargs="*", help="the date on which targets in catalog b get added to the survey. Should be of form YYYYMMDD")
-# TODO rename catalog b to something more useful.
 args = parser.parse_args()
 
 if args.catalog_later or args.later_starts:
@@ -119,6 +117,7 @@ mtl_calib = {}
 calib_progs = ["STD", "SKY"]
 pixlist = {}
 curr_tid = 0
+# TODO: check we've loaded one checkpointed MTL for every catalog in the original input...
 if hp_base.is_dir(): #and fba_base.is_dir():
     # Attempt to checkpoint
     timestamps = []
@@ -165,13 +164,6 @@ else:
 
         log.details(f"Using {len(tbl)} {prog=} targets...")
         log.details(f"{len(pixlist[prog])} HEALpix covered by catalog.")
-
-        # if args.stds is not None:
-        #     mtl_all[prog] = initialize_mtl(tbl, args.outdir, stds_catalog,
-        #                                    as_dict=True, targetmask=targetmask,
-        #                                    nproc=args.nproc, rng=rng, program=prog,
-        #                                    start_id=curr_tid)
-        # else:
         mtl_all[prog] = initialize_mtl(tbl, args.outdir, as_dict=True,
                                        targetmask=targetmask, nproc=args.nproc,
                                        rng=rng, program=prog, start_id=curr_tid)
@@ -468,11 +460,6 @@ with Pool(args.nproc) as p:
         log.details(f"Saving MTL took {t5 - t4} seconds...")
 
         cur_year = night_year
-
-        # TODO remove reset mtl.
-        if args.resetmtl and (i % 2) == 1:
-            log.details(f"Resetting MTL after Night {i}")
-            mtl_all = initialize_mtl(tbl, None, stds_catalog, as_dict=True, targetmask=targetmask, nproc=args.nproc)
 
     t4 = time.time()
     log.details(f"Saving at conclusion...")
