@@ -416,8 +416,8 @@ def generate_target_files(targs, calib_targs, tiles, out_dir, night=1, verbose=F
 
     return targ_files, tile_files, ntargs_on_tile
 
-def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
-                      tid_counts=None, full_nobs=False, fiber_hours=False):
+def get_targ_done_arr(mtl_in, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
+                      tid_counts=None, full_nobs=False, fiber_hours=False, end_only=False, max_obs=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -430,10 +430,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
 
-    split_subtype : bool
+    split_subtype : bool, optional
         Whether or not to split targets by their subtype. Defaults to False.
 
-    global_targs : :class:`~numpy.array`
+    global_targs : :class:`~numpy.array`, optional
         An array of global targets to use for generating the number of done
         targets. I.e. return the number of done targets at each timestamp for the
         targets in global_targs rather than the local targets in the input mtl.
@@ -441,28 +441,40 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         If passed and split_subtype=True, global targs must be an array of strings
         of form "{target_bit}|{subtarget_bit}".
 
-    global_timestamps : :class:`~numpy.array`
+    global_timestamps : :class:`~numpy.array`, optional
         An array of global timestamps to use for generating the number of observations.
         I.e. return the number of observations at each timestamp in global_timestamps
         rather than at each timestamp in the input mtl. Optional, defaults to None,
         which uses the timestamps in the input mtl.
 
-    delta_stats : bool
+    delta_stats : bool, optional
         Whether we should collate statistics on what changed in each MTL update.
         There is a performance consequence to this. Defaults to False.
 
-    tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`
+    tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`, optional
         A numpy rec array or astropy Table with columns "TARGETID" and "POSSIBLE".
         If provided, do not process any TARGETIDs whose POSSIBLE assignments
         are less than NUMOBS_INIT (the goal number of observations). Defaults to None,
         which means process all targets.
 
-    full_nobs : bool
+    full_nobs : bool, optional
         If True, return the full array of number of observations per target
         per MTL update time. If False, return only the arrays per target of
         the number of targets that reached their goal number of exposures.
         The latter is significanlty faster, and adequate for most analyses.
         Defaults to False.
+
+    fiber_hours : bool, optional
+        TBW
+
+    end_only : bool, optional
+        If True, will only return the results from the very end of the survey.
+        Defaults to False.
+
+    max_obs : int, optional
+        If passed, the maximum number of observations of a target expected.
+        Useful if running over a truncated set of timestamps or with end_only=True.
+        Defaults to None which uses len(timestamps).
 
     Returns
     -------
@@ -497,9 +509,12 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         observation was an over observation.
         Only returned if delta_stats = True.
 
-    fiber_hours : bool
-        TBW
     """
+    if not end_only:
+        mtl = mtl_in
+    else:
+        mtl = deduplicate_mtl(mtl_in)
+
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
     if global_timestamps is not None:
@@ -530,7 +545,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     if global_targs is not None:
         targs = global_targs
     else:
-        good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
+        good_targ = mtl["DESI_TARGET"] < 2**12 # Some other targets slip through sometimes...
 
         if not split_subtype:
             targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
@@ -552,9 +567,13 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # fiberassign run.
     nobs = len(unique_timestamps)
     ntargs = len(targs)
+    if max_obs is None:
+        max_obs = nobs
 
     if full_nobs:
-        nobs_arr = np.zeros((ntargs, nobs, nobs))
+        nobs_arr = np.zeros((ntargs, nobs, max_obs))
+    elif end_only:
+        nobs_arr = np.zeros((ntargs, max_obs))
     else:
         nobs_arr = np.zeros((ntargs, nobs))
     num_each_targ = np.zeros(ntargs)
@@ -567,6 +586,8 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # B will provide the same result as uniquifying on timestamp A.
     ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
     these_timestamps = unique_timestamps[ts_in_this_mtl]
+    if end_only:
+        these_timestamps = these_timestamps[-1:] # Only need the last one in this case anyway.
     # print(f"{len(these_timestamps)} timestamps out of {len(unique_timestamps)} in this MTL.")
     if delta_stats:
         targets_obs = np.zeros(nobs)
@@ -575,11 +596,17 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         total_obs = np.zeros((ntargs, nobs))
 
     for i, time in enumerate(these_timestamps):
-        ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
 
+        # This shouldn't do anything in end_only mode but if something is
+        # unexpected this is the place to check.
         trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std) & do_process])
+
         is_done = trunc_mtl["NUMOBS_MORE"] == 0
+        if not end_only:
+            # We only need this for stats that evolve in time.
+            ts_idx = np.where(unique_timestamps == time)[0][0]
+
         for j, t in enumerate(targs):
             if not split_subtype:
                 this_targ = trunc_mtl["DESI_TARGET"] == t
@@ -598,8 +625,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                     this_targ = this_targ & (trunc_mtl[f"{name}_TARGET"] == sub_bit)
 
             if full_nobs:
-                c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
+                c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=max_obs)
                 nobs_arr[j, ts_idx:, :] = c
+            elif end_only:
+                nobs_arr[j, :] = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=max_obs)
             else:
                 # Should broadcast correctly. Flood fill all above this time to
                 # the results for this timestamp. At next higher timestamp
