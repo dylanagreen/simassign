@@ -281,7 +281,6 @@ with Pool(args.nproc) as p:
     if need_to_save:
         log.details("Saving at start...")
         progs_to_save = (list(mtl_all.keys()) + list(mtl_calib.keys()))
-        log.details(progs_to_save)
         # We didn't create these on MTL creation so do it now.
         for prog in progs_to_save:
             (hp_base / prog.lower()).mkdir(parents=True, exist_ok=True)

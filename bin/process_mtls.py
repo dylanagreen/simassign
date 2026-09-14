@@ -20,14 +20,19 @@ from simassign.util import get_targ_done_arr
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="base directory of run to process")
+parser.add_argument("-p", "--program", type=str, help="which program to process")
 parser.add_argument("--nproc", required=False, type=int, default=1, help="number of multiprocessing processes to use for loading tables.")
 parser.add_argument("-o", "--outdir", required=True, type=str, help="where to save generated files.")
-parser.add_argument("-s", "--suffix", required=True, type=str, help="suffix to attach to file names.")
-parser.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
 parser.add_argument("--split_subtype", required=False, action="store_true", help="split subtypes of targets into their own arrays. e.g. if there are multiple types of LBGs, do not aggregate their results as one LBG class.")
 parser.add_argument("--delta_stats", required=False, action="store_true", help="collate the so-called \"delta stats\", i.e. statistics on targets that get observed each timestamp.")
 parser.add_argument("--account_for_avail", required=False, action="store_true", help="generate statistics that account for the fact not every target has enough available positioners to even achieve its goal")
 parser.add_argument("--fiber_hours", required=False, action="store_true", help="generate the total number of exposed fiber hours.")
+parser.add_argument("--ntiles", required=False, action="store_true", help="write out the array of number of tiles per night of the survey.")
+
+process_type = parser.add_mutually_exclusive_group(required=False)
+process_type.add_argument("--nobs", required=False, action="store_true", help="get and save the nobs array if set. Otherwise only get the array of targets that met their own goal.")
+process_type.add_argument("--end_only", required=False, action="store_true", help="get the number of observation results, but only for the end of the survey.")
+
 args = parser.parse_args()
 
 out_dir = Path(args.outdir)
@@ -54,7 +59,8 @@ def process_fba_for_counts(fba_all):
     return Table(tid_data)
 
 top_dir = Path(args.input)
-mtl_loc =  top_dir / "hp" / "main" / "dark"
+prog = args.program.lower()
+mtl_loc =  top_dir / "hp" / "main" / prog
 fba_loc = top_dir / "fba"
 
 if args.account_for_avail:
@@ -83,7 +89,7 @@ nobs = len(timestamps)
 targs = [np.unique(mtl["DESI_TARGET"]) for mtl in mtl_all.values()]
 targs = np.concatenate(targs)
 targs = np.unique(targs)
-targs = targs[targs < 2 ** 12] # Not gonna use anything more than bit 12 for this.
+targs = targs[targs < (2 ** 12)] # Not gonna use anything more than bit 12 for this. This also cuts the calibration targets.
 
 # Generate the list of all targets to find results for, when splitting on subtype
 if args.split_subtype:
@@ -118,7 +124,6 @@ if args.split_subtype:
 print(f"Found targs {targs}")
 
 print(f"Calculating values...")
-# Each row is a pass, each column is number of objects with that many exposures
 print("Generating num obs per update arr....")
 t_start = time.time()
 
@@ -129,11 +134,13 @@ def get_nobs_mp(mtl):
     if args.account_for_avail:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
                                  delta_stats=args.delta_stats, tid_counts=tid_counts,
-                                 full_nobs=True)
+                                 full_nobs=(args.nobs and args.end_only), # only true if args.nobs AND end_only = false.
+                                 end_only=args.end_only, max_obs=nobs)
     else:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
                                  delta_stats=args.delta_stats,
-                                 full_nobs=True)
+                                 full_nobs=(args.nobs and args.end_only),
+                                 end_only=args.end_only, max_obs=nobs)
 
 def get_done_mp(mtl):
     if args.account_for_avail:
@@ -143,10 +150,9 @@ def get_done_mp(mtl):
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
                                  delta_stats=args.delta_stats, fiber_hours=args.fiber_hours)
 
+mtl_vals = list(mtl_all.values())
+del mtl_all
 if args.nobs:
-    mtl_vals = list(mtl_all.values())
-    del mtl_all
-
     # TODO split up by target type instead of just splitting the MTLs.
     # I think in theory this would be a better use of memory management but we'd
     # probably take a hit on time since we'd have to run over the MTLs multiple times.
@@ -159,8 +165,8 @@ if args.nobs:
 
     del mtl_vals # Free up memory because these mtls are now split into the arrays.
 
-    nobs = np.zeros((len(targs), len(timestamps), len(timestamps)))
-    at_least = np.zeros_like(nobs)
+    nobs_arr = np.zeros((len(targs), nobs, nobs))
+    at_least = np.zeros_like(nobs_arr)
 
     with Pool(args.nproc) as p:
         for mtls in splits:
@@ -169,7 +175,7 @@ if args.nobs:
             # Res is an array of tuples (tuples the return of get_nobs) so this just
             # unpacks all the tuples.
             for i, r in enumerate(res):
-                nobs += r[0]
+                nobs_arr += r[0]
                 at_least += r[1]
 
             del res
@@ -179,12 +185,29 @@ if args.nobs:
     fraction = at_least / at_least[:, 0, 0][:, None, None]
 
     print("Writing nobs arrs...")
-    np.save(out_dir / f"nobs_{args.suffix}.npy", nobs)
-    np.save(out_dir / f"at_least_{args.suffix}.npy", at_least)
-    np.save(out_dir / f"fraction_full_{args.suffix}.npy", fraction)
+    np.save(out_dir / f"nobs_{prog}.npy", nobs_arr)
+    np.save(out_dir / f"at_least_{prog}.npy", at_least)
+    np.save(out_dir / f"fraction_full_{prog}.npy", fraction)
+elif args.end_only:
+    nobs_arr = np.zeros((len(targs), nobs))
+
+    with Pool(args.nproc) as p:
+        res = p.map(get_nobs_mp, mtl_vals)
+
+    # Unpack tuples
+    for i, r in enumerate(res):
+        nobs_arr += r[0]
+
+    # See comment in get_targ_done_arr for an explanation of why this works.
+    at_least = np.cumsum(nobs_arr[:, ::-1], axis=1)[:, ::-1]
+    print("Writing nobs arrs...")
+    print(nobs_arr)
+    np.save(out_dir / f"nobs_end_{prog}.npy", nobs_arr)
+    np.save(out_dir / f"at_least_end_{prog}.npy", at_least)
+
 else:
     with Pool(args.nproc) as p:
-        res = p.map(get_done_mp, list(mtl_all.values()))
+        res = p.map(get_done_mp, mtl_vals)
 
     done = np.zeros(res[0][0].shape)
     n_tot = np.zeros(res[0][1].shape)
@@ -217,34 +240,35 @@ else:
 
     if args.fiber_hours:
         print(f"Fiber hours: {targs} : {fiber_hours[:, -1]}")
-        np.save(out_dir / f"fiber_hours_{args.suffix}.npy", fiber_hours)
+        np.save(out_dir / f"fiber_hours_{prog}.npy", fiber_hours)
 
     print("Writing done arrs...")
-    np.save(out_dir / f"done_{args.suffix}.npy", done)
-    np.save(out_dir / f"n_tot_{args.suffix}.npy", n_tot)
-    np.save(out_dir / f"fraction_{args.suffix}.npy", fraction)
+    np.save(out_dir / f"done_{prog}.npy", done)
+    np.save(out_dir / f"n_tot_{prog}.npy", n_tot)
+    np.save(out_dir / f"fraction_{prog}.npy", fraction)
 
     if args.delta_stats:
-        np.save(out_dir / f"targs_obs_{args.suffix}.npy", targs_obs)
-        np.save(out_dir / f"targs_obs_over_{args.suffix}.npy", targs_obs_over)
+        np.save(out_dir / f"targs_obs_{prog}.npy", targs_obs)
+        np.save(out_dir / f"targs_obs_over_{prog}.npy", targs_obs_over)
 
 t_end = time.time()
 print(f"Nobs took {t_end - t_start} seconds...")
 
-np.save(out_dir / f"targs_{args.suffix}.npy", targs)
+np.save(out_dir / f"targs_{prog}.npy", targs)
 
-t_start = time.time()
+if args.ntiles:
+    t_start = time.time()
 
-print("Getting n_tiles...")
-with Pool(args.nproc) as p:
-    ntiles = p.map(tiles_from_file, get_tile_files(top_dir))
-ntiles.insert(0, 0)
-ntiles_cum = np.cumsum(ntiles)
+    print("Getting n_tiles...")
+    with Pool(args.nproc) as p:
+        ntiles = p.map(tiles_from_file, get_tile_files(top_dir))
+    ntiles.insert(0, 0)
+    ntiles_cum = np.cumsum(ntiles)
 
-t_end = time.time()
-print(f"Get Tiles took {t_end - t_start} seconds...")
+    t_end = time.time()
+    print(f"Get Tiles took {t_end - t_start} seconds...")
 
-print("Writing n_tiles...")
+    print("Writing n_tiles...")
 
-np.save(out_dir / f"ntiles_{args.suffix}.npy", ntiles)
-np.save(out_dir / f"ntiles_cum_{args.suffix}.npy", ntiles_cum)
+    np.save(out_dir / f"ntiles_{prog}.npy", ntiles)
+    np.save(out_dir / f"ntiles_cum_{prog}.npy", ntiles_cum)
