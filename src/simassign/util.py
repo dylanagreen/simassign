@@ -992,12 +992,14 @@ def get_stripe_bounds(srvy, delta_dec=2.8):
     return decs, ras_left, ras_right, total_width
 
 
-def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=None, delta_dec=2.8):
+def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=360, delta_dec=2.8):
     # TODO docstring
     # TODO nside as a parameter
     tile_rad = get_tile_radius_deg()
-    min_dec = np.min(hpx_tbl["DEC"])
-    max_dec = np.max(hpx_tbl["DEC"])
+    min_dec = np.min(hpx_tbl["DEC"]) + tile_rad * 0.8
+    max_dec = np.max(hpx_tbl["DEC"]) - tile_rad * 0.8
+
+    print("decs", np.min(hpx_tbl["DEC"]), min_dec, np.max(hpx_tbl["DEC"]), max_dec)
 
     hp_width = np.rad2deg(hp.nside2resol(128))
 
@@ -1118,7 +1120,7 @@ def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_ti
         # edges. By construction the delta_ra of this row will be slightly larger than
         # delta_ra / cos_dec.
         ras_at_dec = np.linspace(ras_left[i], ras_right[i], n_row)
-        print(n_row, len(ras_at_dec), np.diff(ras_at_dec)[0], delta_ra, delta_ra / cos_decs[i])
+        print(n_row, np.round(dec, 4), "\t", len(ras_at_dec), np.diff(ras_at_dec)[0], delta_ra, delta_ra / cos_decs[i])
         for j, ra in enumerate(ras_at_dec):
             shift = (j % 5) - 3 # Ranges from -2 to + 2
             all_centers.append([ra, dec + shift * dec_offset])
@@ -1154,6 +1156,15 @@ def generate_stripe_tiles(srvys, num_tiles=2500, healpix=False, start_decs=None)
     decs = np.concatenate(decs)
     ras_right = np.concatenate(ras_right)
     ras_left = np.concatenate(ras_left)
+
+    print(decs)
+    print(ras_left)
+    print(ras_right)
+
+    sorter = np.argsort(decs)
+    decs = decs[sorter]
+    ras_right = ras_right[sorter]
+    ras_left = ras_left[sorter]
 
     all_centers, row_num = get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_tiles)
 
