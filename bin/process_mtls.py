@@ -6,7 +6,7 @@
 # TODO proper docstring
 # stdlib imports
 import argparse
-from multiprocessing import Pool
+from multiprocessing import Pool, set_start_method
 from pathlib import Path
 import time
 
@@ -57,6 +57,8 @@ def process_fba_for_counts(fba_all):
 
     tid_data = {"TARGETID": all_tids, "POSSIBLE": all_counts}
     return Table(tid_data)
+
+set_start_method("fork")
 
 top_dir = Path(args.input)
 prog = args.program.lower()
@@ -134,12 +136,12 @@ def get_nobs_mp(mtl):
     if args.account_for_avail:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
                                  delta_stats=args.delta_stats, tid_counts=tid_counts,
-                                 full_nobs=(args.nobs and args.end_only), # only true if args.nobs AND end_only = false.
+                                 full_nobs=(args.nobs and not args.end_only), # only true if args.nobs AND end_only = false.
                                  end_only=args.end_only, max_obs=nobs)
     else:
         return get_targ_done_arr(mtl, args.split_subtype, targs, timestamps,
                                  delta_stats=args.delta_stats,
-                                 full_nobs=(args.nobs and args.end_only),
+                                 full_nobs=(args.nobs and not args.end_only),
                                  end_only=args.end_only, max_obs=nobs)
 
 def get_done_mp(mtl):
