@@ -7,12 +7,12 @@ from desimodel.footprint import tiles2pix
 from desitarget.targetmask import  obsconditions
 
 # Non-DESI outside imports
-from astropy.table import Table, unique
+from astropy.table import Table, unique, vstack
 import healpy as hp
 from matplotlib.patches import Path as mpPath
 import numpy as np
 
-from simassign.mtl import deduplicate_mtl
+from simassign.mtl import deduplicate_mtl, CALIB_TARGS
 
 # Rotations for first through 15th passes of the sky of the DESI tiling
 rots = np.array([[0, 0],
@@ -79,7 +79,6 @@ new_rots = np.array([[-2.55045500e+00,  4.35673381e+00],
                      [-5.11839125e+00,  1.55978360e+01],
                      [ 1.28571625e+01, -1.30985269e+01],
                      [-7.68632750e+00,  1.69884994e+01]])
-
 
 def generate_random_objects(ramin, ramax, decmin, decmax, rng, density=1000):
     """
@@ -331,22 +330,31 @@ def targets_in_tile(targs, tile_center):
 
 # Generate target files for each of the tiles and save them to
 # outdir / pass_num. Also generate associated tile file.
-def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=True):
+def generate_target_files(targs, calib_targs, tiles, out_dir, night=1, verbose=False, trunc=True):
     """
     Given a set of targets and a set of tiles, generate the necessary
     files on disk that encode which targets are accessible by each tile.
 
     Parameters
     ----------
-    targs : :class:`~numpy.array` or :class:`~astropy.table.Table`
-        A numpy rec array or astropy Table storing the target definition.
+    targs : dict of :class:`~numpy.array` or :class:`~astropy.table.Table`
+        Dictioanry of numpy rec arrays or astropy Tables storing the target definition.
         The data model is largely agnostic, but should include at minimum the
-        columns "RA" and "DEC" defining each target position.
+        columns "RA" and "DEC" defining each target position. Keys of the dictionary
+        should be the programs in the tiles table.
+
+    calib_targs : dict of :class:`~numpy.array` or :class:`~astropy.table.Table`
+        Dictioanry of numpy rec arrays or astropy Tables storing the target definition.
+        The data model is largely agnostic, but should include at minimum the
+        columns "RA" and "DEC" defining each target position. Keys of the dictionary
+        should be the type of calibration target. These targets are included
+        on every program tile for programs in targs.
 
     tiles : :class:`~numpy.array` or :class:`~astropy.table.Table`
         A numpy rec array or astropy Table storing the tile definition.
         The data model is largely agnostic, but should include at minimum the
-        columns "RA" and "DEC" defining each tile center.
+        columns "RA" and "DEC" defining each tile center and "PROGRAM" defining
+        what program this tile is observed in.
 
     out_dir : str or :class:`~pathlib.Path`
         The directory to save the tile and target files to.
@@ -375,7 +383,7 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     if verbose: print(f"Passed {len(tiles)} to generate target files")
     save_loc = Path(out_dir) / f"night-{night}"
 
-    # Make the director if it doesn't exist (very likely)
+    # Make the directory if it doesn't exist (very likely)
     save_loc.mkdir(parents=True, exist_ok=True)
 
     targ_files = []
@@ -383,10 +391,15 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
     ntargs_on_tile = []
     for tile in tiles:
         tileid = tile["TILEID"]
+        prog = tile["PROGRAM"]
         if trunc:
-            tile_targs = targets_in_tile(targs, (tile["RA"], tile["DEC"]))
+            tile_targs = targets_in_tile(targs[prog], (tile["RA"], tile["DEC"]))
+            calib_tile_targs = vstack([targets_in_tile(calib_targs[p], (tile["RA"], tile["DEC"])) for p in calib_targs.keys()])
         else:
-            tile_targs = targs
+            tile_targs = targs[prog]
+            calib_tile_targs = vstack([calib_targs[p] for p in calib_targs.keys()])
+
+        tile_targs = vstack([tile_targs, calib_tile_targs])
 
         target_filename = save_loc / f"targets-{tileid}.fits"
         if verbose: print(f"Writing {len(tile_targs)} to {target_filename}")
@@ -403,8 +416,8 @@ def generate_target_files(targs, tiles, out_dir, night=1, verbose=False, trunc=T
 
     return targ_files, tile_files, ntargs_on_tile
 
-def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
-                      tid_counts=None, full_nobs=False, fiber_hours=False):
+def get_targ_done_arr(mtl_in, split_subtype=False, global_targs=None, global_timestamps=None, delta_stats=False,
+                      tid_counts=None, full_nobs=False, fiber_hours=False, end_only=False, max_obs=None):
     """
     Given an MTL generate an array of the number of targets with $m <= N$ observations
     after $n$ MTL updates, up to the total number $N$ MTL updates. Updates may
@@ -417,10 +430,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         A numpy rec array or astropy Table representing the MTL. It is
         necessary to have the columns TIMESTAMP, TARGETID and NUMOBS.
 
-    split_subtype : bool
+    split_subtype : bool, optional
         Whether or not to split targets by their subtype. Defaults to False.
 
-    global_targs : :class:`~numpy.array`
+    global_targs : :class:`~numpy.array`, optional
         An array of global targets to use for generating the number of done
         targets. I.e. return the number of done targets at each timestamp for the
         targets in global_targs rather than the local targets in the input mtl.
@@ -428,28 +441,40 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         If passed and split_subtype=True, global targs must be an array of strings
         of form "{target_bit}|{subtarget_bit}".
 
-    global_timestamps : :class:`~numpy.array`
+    global_timestamps : :class:`~numpy.array`, optional
         An array of global timestamps to use for generating the number of observations.
         I.e. return the number of observations at each timestamp in global_timestamps
         rather than at each timestamp in the input mtl. Optional, defaults to None,
         which uses the timestamps in the input mtl.
 
-    delta_stats : bool
+    delta_stats : bool, optional
         Whether we should collate statistics on what changed in each MTL update.
         There is a performance consequence to this. Defaults to False.
 
-    tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`
+    tid_counts : :class:`~numpy.array` or :class:`~astropy.table.Table`, optional
         A numpy rec array or astropy Table with columns "TARGETID" and "POSSIBLE".
         If provided, do not process any TARGETIDs whose POSSIBLE assignments
         are less than NUMOBS_INIT (the goal number of observations). Defaults to None,
         which means process all targets.
 
-    full_nobs : bool
+    full_nobs : bool, optional
         If True, return the full array of number of observations per target
         per MTL update time. If False, return only the arrays per target of
         the number of targets that reached their goal number of exposures.
         The latter is significanlty faster, and adequate for most analyses.
         Defaults to False.
+
+    fiber_hours : bool, optional
+        TBW
+
+    end_only : bool, optional
+        If True, will only return the results from the very end of the survey.
+        Defaults to False.
+
+    max_obs : int, optional
+        If passed, the maximum number of observations of a target expected.
+        Useful if running over a truncated set of timestamps or with end_only=True.
+        Defaults to None which uses len(timestamps).
 
     Returns
     -------
@@ -484,9 +509,12 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         observation was an over observation.
         Only returned if delta_stats = True.
 
-    fiber_hours : bool
-        TBW
     """
+    if not end_only:
+        mtl = mtl_in
+    else:
+        mtl = deduplicate_mtl(mtl_in)
+
     timestamps = np.array(mtl["TIMESTAMP"], dtype=str)
 
     if global_timestamps is not None:
@@ -517,7 +545,7 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     if global_targs is not None:
         targs = global_targs
     else:
-        good_targ = mtl["DESI_TARGET"] < 2**10 # Some other targets slip through sometimes...
+        good_targ = mtl["DESI_TARGET"] < 2**12 # Some other targets slip through sometimes...
 
         if not split_subtype:
             targs = np.unique(mtl["DESI_TARGET"][~is_std & good_targ])
@@ -539,9 +567,13 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # fiberassign run.
     nobs = len(unique_timestamps)
     ntargs = len(targs)
+    if max_obs is None:
+        max_obs = nobs
 
     if full_nobs:
-        nobs_arr = np.zeros((ntargs, nobs, nobs))
+        nobs_arr = np.zeros((ntargs, nobs, max_obs))
+    elif end_only:
+        nobs_arr = np.zeros((ntargs, max_obs))
     else:
         nobs_arr = np.zeros((ntargs, nobs))
     num_each_targ = np.zeros(ntargs)
@@ -554,6 +586,8 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
     # B will provide the same result as uniquifying on timestamp A.
     ts_in_this_mtl = np.isin(unique_timestamps, np.unique(timestamps))
     these_timestamps = unique_timestamps[ts_in_this_mtl]
+    if end_only:
+        these_timestamps = these_timestamps[-1:] # Only need the last one in this case anyway.
     # print(f"{len(these_timestamps)} timestamps out of {len(unique_timestamps)} in this MTL.")
     if delta_stats:
         targets_obs = np.zeros(nobs)
@@ -562,11 +596,17 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
         total_obs = np.zeros((ntargs, nobs))
 
     for i, time in enumerate(these_timestamps):
-        ts_idx = np.where(unique_timestamps == time)[0][0]
         keep_rows = timestamps <= time
 
+        # This shouldn't do anything in end_only mode but if something is
+        # unexpected this is the place to check.
         trunc_mtl = deduplicate_mtl(mtl[keep_rows & (~is_std) & do_process])
+
         is_done = trunc_mtl["NUMOBS_MORE"] == 0
+        if not end_only:
+            # We only need this for stats that evolve in time.
+            ts_idx = np.where(unique_timestamps == time)[0][0]
+
         for j, t in enumerate(targs):
             if not split_subtype:
                 this_targ = trunc_mtl["DESI_TARGET"] == t
@@ -585,8 +625,10 @@ def get_targ_done_arr(mtl, split_subtype=False, global_targs=None, global_timest
                     this_targ = this_targ & (trunc_mtl[f"{name}_TARGET"] == sub_bit)
 
             if full_nobs:
-                c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=nobs)
+                c = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=max_obs)
                 nobs_arr[j, ts_idx:, :] = c
+            elif end_only:
+                nobs_arr[j, :] = np.bincount(trunc_mtl["NUMOBS"][this_targ], minlength=max_obs)
             else:
                 # Should broadcast correctly. Flood fill all above this time to
                 # the results for this timestamp. At next higher timestamp
@@ -950,12 +992,14 @@ def get_stripe_bounds(srvy, delta_dec=2.8):
     return decs, ras_left, ras_right, total_width
 
 
-def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=None, delta_dec=2.8):
+def get_stripe_bounds_hpx(hpx_tbl, start_dec=(5 - get_tile_radius_deg()), split_ra=360, delta_dec=2.8):
     # TODO docstring
     # TODO nside as a parameter
     tile_rad = get_tile_radius_deg()
-    min_dec = np.min(hpx_tbl["DEC"])
-    max_dec = np.max(hpx_tbl["DEC"])
+    min_dec = np.min(hpx_tbl["DEC"]) + tile_rad * 0.8
+    max_dec = np.max(hpx_tbl["DEC"]) - tile_rad * 0.8
+
+    print("decs", np.min(hpx_tbl["DEC"]), min_dec, np.max(hpx_tbl["DEC"]), max_dec)
 
     hp_width = np.rad2deg(hp.nside2resol(128))
 
@@ -1076,7 +1120,7 @@ def get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_ti
         # edges. By construction the delta_ra of this row will be slightly larger than
         # delta_ra / cos_dec.
         ras_at_dec = np.linspace(ras_left[i], ras_right[i], n_row)
-        print(n_row, len(ras_at_dec), np.diff(ras_at_dec)[0], delta_ra, delta_ra / cos_decs[i])
+        print(n_row, np.round(dec, 4), "\t", len(ras_at_dec), np.diff(ras_at_dec)[0], delta_ra, delta_ra / cos_decs[i])
         for j, ra in enumerate(ras_at_dec):
             shift = (j % 5) - 3 # Ranges from -2 to + 2
             all_centers.append([ra, dec + shift * dec_offset])
@@ -1113,6 +1157,15 @@ def generate_stripe_tiles(srvys, num_tiles=2500, healpix=False, start_decs=None)
     ras_right = np.concatenate(ras_right)
     ras_left = np.concatenate(ras_left)
 
+    print(decs)
+    print(ras_left)
+    print(ras_right)
+
+    sorter = np.argsort(decs)
+    decs = decs[sorter]
+    ras_right = ras_right[sorter]
+    ras_left = ras_left[sorter]
+
     all_centers, row_num = get_shift_centers_from_bounds(decs, ras_left, ras_right, total_width, num_tiles)
 
     # Some barebones tile file requirements
@@ -1134,7 +1187,7 @@ def generate_stripe_tiles(srvys, num_tiles=2500, healpix=False, start_decs=None)
     tiles["RA"][shift] -= 360
     return tiles
 
-def target_mask_to_int(targetmask):
+def target_mask_to_int(targetmask, targtype="SCIENCE"):
     """
     Convert the bits that define targets in targetmask to a single integer
 
@@ -1142,6 +1195,9 @@ def target_mask_to_int(targetmask):
     ----------
     targetmask : dict
         Dictionary defining the targetmask from, for example, load_target_yaml.
+    targtype : str, optional
+        String defining what kind of targets to get the integer for. Default
+        is SCIENCE, for all science targets. Other options include STD or SKY.
 
     Returns
     -------
@@ -1153,11 +1209,15 @@ def target_mask_to_int(targetmask):
     -----
 
     This is a convenience function to use for fiberassign, which can take in
-    an integer reprsenting which bits to use as science targets in an input
+    an integer reprsenting which bits to use as specific targets in an input
     catalog.
     """
-    science_mask = 0
+    mask = 0
     for row in targetmask["desi_mask"]:
-        science_mask += 2 ** (row[1])
+        if (targtype == "SCIENCE") and (row[0] not in CALIB_TARGS):
+            mask += 2 ** (row[1])
+        elif row[0] == targtype:
+            # The case where we want only the calib targets.
+            mask += 2 ** (row[1])
 
-    return science_mask
+    return mask

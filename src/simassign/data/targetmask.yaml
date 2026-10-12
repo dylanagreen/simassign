@@ -4,47 +4,55 @@ desi_mask:
     - [LAE,         2, "LAE",                              {obsconditions: DARK}]
     - [QSO,         3, "QSO",                              {obsconditions: DARK}]
 
-    # Bits for other targets.
-    - [ELG,         4, "dark time ELGs",                   {obsconditions: DARK}]
-    - [MWS,         5, "MWS targets",                      {obsconditions: DARK|BRIGHT}]
-    - [HID,         6, "High density program targets",     {obsconditions: DARK|BRIGHT}]
-    - [LENS,        7, "targets from the lensing program", {obsconditions: DARK}]
+    # Bits for other program targets.
+    - [EGD,         4, "extra galactic dwarves",           {obsconditions: DARK}]
+    - [MWS,         5, "MWS targets",                      {obsconditions: DARK|BRIGHT|BACKUP}]
+    - [XLG,         6, "High density program targets",     {obsconditions: DARK|BRIGHT|BACKUP}]
+    - [LENS,        7, "targets from lensing program",     {obsconditions: DARK1B}]
+
+    - [SKY,         32, "Blank sky locations",                                       {obsconditions: DARK|GRAY|BRIGHT|BACKUP|TWILIGHT12|TWILIGHT18}]
+    - [STD,         33, "Standard stars for dark/gray conditions",                   {obsconditions: DARK|BRIGHT}]
+
 
 priorities:
     desi_mask:
-        # Increase priority when we have a zgood.
+        # Increase priority when we have a "zgood" to ensure reobservation
         LAE: {UNOBS: 3400, MORE_ZGOOD: 3450, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
         LBG: {UNOBS: 3500, MORE_ZGOOD: 3550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
         QSO: {UNOBS: 3500, MORE_ZGOOD: 3550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
 
-        # Increase priority when we have a zgood.
-        ELG:  {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
-        MWS:  {UNOBS: 1500, MORE_ZGOOD: 1550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
-        HID:  {UNOBS: 1500, MORE_ZGOOD: 1550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
-        LENS: {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        EGD:   {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        MWS:   {UNOBS: 1500, MORE_ZGOOD: 1550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        XLG:   {UNOBS: 1600, MORE_ZGOOD: 1650, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
+        LENS:  {UNOBS: 2500, MORE_ZGOOD: 2550, DONE: 2, OBS: 1, DONOTOBSERVE: 0}
 
 numobs: # These are in "increments of 15", i.e. 4 = 1 hour of effective time.
     desi_mask:
         # High Z program
         LBG: 6
         LAE: 2
-        QSO: 4
+        QSO: 2
 
-        ELG: 1
-        MWS: 1
-        HID: 1
-        LENS: 8
+        EGD:   4
+        MWS:   3 # Program has 5 minutes exposures
+        XLG:   1 # Program has 5 minute exposures
+        LENS:  8
 
 #- qso bits
 qso_mask:
-    - [BASE,             0, "Regular QSO",      {obsconditions: DARK, numobs_mult: 1}]
-    - [QSO_HIZ,          1, "HIGHZ QSO",        {obsconditions: DARK, numobs_mult: 2}]
+    - [BASE,             0, "Regular QSO",      {obsconditions: DARK, numobs_mult: 1, frac: 110/150}]
+    - [LONG,             1, "long exposure",    {obsconditions: DARK, numobs_mult: 2, frac: 40/150}]
 
 lbg_mask:
     - [LBG234,             0, "23.4 mag cut",      {obsconditions: DARK, numobs_mult: 1, frac: 90/850}]
     - [LBG238,             1, "23.8 mag cut",      {obsconditions: DARK, numobs_mult: 2, frac: 220/850}]
     - [LBG240,             2, "24.0 mag cut",      {obsconditions: DARK, numobs_mult: 3, frac: 220/850}]
     - [LBG242,             3, "24.2 mag cut",      {obsconditions: DARK, numobs_mult: 4, frac: 320/850}]
+
+#- xlg bits
+xlg_mask:
+    - [BASE,             0, "Regular XLG",              {priority_mult: 1}]
+    - [LOP,              1, "Low Prioritiy XLG",        {priority_mult: 0.5}]
 
 obsconditions:
     - [DARK,        0, "Moon is down"]
@@ -57,5 +65,6 @@ obsconditions:
     - [CLOSED,      7, "Nighttime but dome is closed due to rain, wind, dew..."]
     - [APOCALYPSE,  8, "Conditions are so bad that the world is ending anyway"]
     - [IGNORE,      9, "Used to indicate that obsconditions are set by a sub-bit rather than this bit"]
-    - [DARK1B,     10, "Moon is down, DESI 1B survey"]
+    - [DARK1B,     10, "Moon is down, DESI 1B survey (in sims, used for lensing program)"]
     - [BRIGHT1B,   11, "Moon up and bright, DESI 1B survey"]
+    - [DARK1C,     12, "Moon is down, DESI 1C survey (in sims, used for high z program)"]

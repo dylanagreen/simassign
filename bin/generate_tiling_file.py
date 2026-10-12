@@ -6,13 +6,11 @@ from datetime import datetime, timedelta
 # Non-DESI Imports
 import numpy as np
 from astropy.table import Table, vstack, unique
+import yaml
 
 # DESI imports
 from desimodel.io import load_tiles
 from desimodel.focalplane import get_tile_radius_deg
-
-# stdlib imports
-from pathlib import Path
 
 # simassign imports
 from simassign.util import *
@@ -28,8 +26,11 @@ parser.add_argument("--starting_pass", required=False, type=int, default=0, help
 parser.add_argument("--n_repeat", required=False, type=int, default=1, help="number of times to repeat the same centers. If n_repeat > 1, max tiles is only considered for 1 'repeat'")
 parser.add_argument("--obscon", required=False, default="DARK", help="obscondition to encode into the tiles.")
 parser.add_argument("--desionly", required=False, action="store_true", help="output file should include only IN_DESI tiles.")
+# TODO make consistent with trim catalog to survey with healpix as an alternate to survey entirely.
 parser.add_argument("--use_healpix", required=False, action="store_true", help="use healpixels to check if tiles are in the survey area. Requires that --survey is a list of healpixels, not a list of RA, DEC points.")
 parser.add_argument("--start_decs", required=False, type=float, nargs='*', help="if running stripe tiling, use these declinations are starting declinations. Must be one per survey/region/footprint in --survey. NOTE: right now only active for healpixel based surveys")
+parser.add_argument("--config", required=True, type=str, help="configuration yaml file with survey/target parameters.")
+parser.add_argument("--add_extras", required=False, action="store_true", help="add extra BRIGHT + BACKUP tiles for susrveysim.")
 
 group_trim = parser.add_mutually_exclusive_group(required=False)
 group_trim.add_argument("--trim_rad", type=float, help="when trimming, keep only tiles if their center is at least trim_rad/2 away from the survey edge. This convention matches that of the matplotlib path")
@@ -47,20 +48,19 @@ if args.stripes:
 if args.time:
     args.ntiles = (args.time[0] * 60) // args.time[1]
 
+
+with open(args.config) as f:
+    targetmask = yaml.safe_load(f)
+
 def add_tile_cols(tiles):
-    # TODO take in a config file.
     tile_tbl = Table(tiles)
     if "PROGRAM" in tile_tbl.colnames:
         tile_tbl["PROGRAM"] = tile_tbl["PROGRAM"].astype("<U15")
     tile_tbl["PROGRAM"] = args.obscon.upper()
-    if args.obscon.upper() == "DARK":
-        tile_tbl["OBSCONDITIONS"] = 2**0
-    elif args.obscon.upper() == "BRIGHT":
-        tile_tbl["OBSCONDITIONS"] = 2**2
-    elif args.obscon.upper() == "DARK1B":
-        tile_tbl["OBSCONDITIONS"] = 2**10
-    else:
-        tile_tbl["OBSCONDITIONS"] = 2**1 # GRAY.
+
+    for obscon in targetmask["obsconditions"]:
+        if args.obscon.upper() == obscon[0]:
+            tile_tbl["OBSCONDITIONS"] = 2**(obscon[1])
 
     if "ROW" in tile_tbl.colnames:
         del tile_tbl["ROW"]
@@ -112,8 +112,7 @@ else:
     # Use npass as the max_pass, otherwise try estimate how many passes
     # we will need
     if args.npass:
-        if args.twoex: max_pass = (args.npass + 1) // 2
-        else: max_pass = args.npass + 1
+        max_pass = args.npass + 1
     else:
         print("n_base", n_base)
         max_pass = args.ntiles // n_base + 1 # Add one because we iterate from 1 upwards.
@@ -190,13 +189,17 @@ tiles["AVAILABLE"] = True
 tiles["PRIORITY_BOOSTFAC"] = 1.0
 
 # Need these for survey sim
-tiles["IN_DESI"][-2:] = True
-tiles["PROGRAM"] = tiles["PROGRAM"].astype("<U15")
-if (args.obscon.upper() == "DARK") | (args.obscon.upper() == "DARK1B"):
-    tiles["PROGRAM"][-2] = "BRIGHT"
-else:
-    tiles["PROGRAM"][-2] = "DARK"
-tiles["PROGRAM"][-1] = "BACKUP"
+if args.add_extras:
+    to_add = Table(tiles[-2:], copy=True)
+    to_add["IN_DESI"][-2:] = True
+    to_add["PROGRAM"] = to_add["PROGRAM"].astype("<U15")
+    if ("DARK" in args.obscon.upper()):
+        to_add["PROGRAM"][-2] = "BRIGHT1B"
+    else:
+        to_add["PROGRAM"][-2] = "DARK"
+    to_add["PROGRAM"][-1] = "BACKUP"
+
+    tiles = vstack([tiles, to_add])
 
 # Update timestamps last so that we only update those that are IN_DESI
 timestamps = [str(start_time)] * np.sum(tiles["IN_DESI"])

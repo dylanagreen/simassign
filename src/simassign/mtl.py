@@ -17,6 +17,8 @@ from multiprocessing import Pool
 from pathlib import Path
 import shutil
 
+from ._version import __version__ as simassign_version
+
 from simassign.logging import get_log
 log = get_log()
 mtl_cols = ['RA',
@@ -46,7 +48,7 @@ mtl_cols = ['RA',
             'VERSION',
             'OBSCONDITIONS',
             'HEALPIX']
-
+CALIB_TARGS = ["STD", "SKY"]
 
 def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitarget=False, verbose=False):
     """
@@ -135,6 +137,7 @@ def update_mtl(mtl, tids_to_update, targetmask=None, timestamp=None, use_desitar
         for target in targetmask["desi_mask"]:
             bit = 2**target[1]
             name = target[0]
+            if name in CALIB_TARGS: continue
 
             this_target = (mtl_updates["DESI_TARGET"] & bit) != 0
 
@@ -220,9 +223,10 @@ def load_target_yaml(fname):
         return yaml.safe_load(f)
 
 
-def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
+def initialize_mtl(base_tbl, save_dir=None, cal_type=None, return_mtl_all=True,
                    as_dict=False, targetmask=None, nproc=1, start_id=0,
-                   timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701)):
+                   timestamp="2024-12-30T00:00:00+00:00", rng=np.random.default_rng(91701),
+                   program=None, healpixels_to_load=None):
     """
     Initialize an MTL in a format readable by fiberassign contaning all
     the necessary columns for state tracking.
@@ -246,11 +250,10 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
         and saved in per healpixel sub-MTLs. Defaults to None, which does
         not save the MTL to disk.
 
-    stds_catalog : str or :class:`~pathlib.Path`, optional
-        If given, the a catalog that contains standard stars. Standard
-        stars are appended to the input table before MTL generation. Only
-        standard stars that lie in the healpix covering base_tbl are kept.
-        Defaults to None.
+    cal_type : str, optional
+        If given, indciates that this table is a table of calibration targets.
+        The given string will be set as the PROGRAM type in the header, and
+        can be any value but ideally should be STANDARD or SKY.
 
     return_mtl_all : bool, optional
         Whether to return the initialized, concatenated mtl_all or not. In
@@ -282,6 +285,19 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     timestamp : str, optional
         Timestamp to encode into this MTL, representing the starting date/time
         of the ledger. Defaults to "2024-12-30T00:00:00+00:00".
+
+    rng : np.random.Generator
+        A random number generator to use for generating numbers. Useful if
+        the rng should be reused between processes to ensure total
+        reproducibility. Defaults to a newly instantiated one with see 91701.
+
+    program : str, optional
+        The program directory to save this MTL to, defaults to None.
+
+    healpixels_to_load : np.arraylike
+        An array of healpixels to load from the input catalog. Useful if
+        this is a catalog of calibration targets and we want to subselect
+        to only calibration targets in the survey area. Defaults to None.
 
     Returns
     -------
@@ -318,40 +334,59 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["NUMOBS"] = 0
     tbl["OBSCONDITIONS"] = 0
     tbl["TARGET_STATE"] = "UNOBS"
-    tbl["PRIORITY_INIT"] = 3400
-    tbl["PRIORITY"] = 3400
+    tbl["PRIORITY_INIT"] = 1 # Calibration types will get this default priorty
+    tbl["PRIORITY"] = 1 # Calibration types will get this default priorty
 
     tbl["SUBPRIORITY"] = rng.uniform(size=len(tbl))
+    if cal_type is not None:
+        # TODO we blindly trust that the DESI_TARGET bit is set to SKY/STD etc. Should we not?
+        tbl.meta["PROGRAM"] = cal_type
+        tbl["TARGET_STATE"] = cal_type
+        # Observe calibration targets on every tile. This may not be strictly necessary.
+        for oc in targetmask["obsconditions"]:
+            tbl["OBSCONDITIONS"] += (2**oc[1])
+        program = cal_type
+    else:
+        tbl.meta["PROGRAM"] = program
 
+    # TODO make nside a paramter.
     nside = 64
     theta, phi = np.radians(90 - tbl["DEC"]), np.radians(tbl["RA"])
     hpx_data = hp.ang2pix(nside, theta, phi, nest=True)
     tbl["HEALPIX"] = hpx_data
+
+    if healpixels_to_load is not None:
+        keep = np.isin(hpx_data, healpixels_to_load)
+        tbl = tbl[keep]
+        hpx_data = hpx_data[keep]
+        log.details(f"Cut {np.sum(~keep)} calibration targets not in input healpixel list")
+
     pixlist = np.unique(hpx_data)
 
     using_qso_target = "QSO_TARGET" in tbl.colnames
     using_lbg_target = "LBG_TARGET" in tbl.colnames
     using_xlg_target = "XLG_TARGET" in tbl.colnames
-    if stds_tbl is not None:
-        theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
-        hpx = hp.ang2pix(nside, theta, phi, nest=True)
-        stds_tbl["HEALPIX"] = hpx
-        keep_stds = np.isin(hpx, pixlist)
-        keep_cols = tbl.colnames
+    # if stds_tbl is not None:
+    #     theta, phi = np.radians(90 - stds_tbl["DEC"]), np.radians(stds_tbl["RA"])
+    #     hpx = hp.ang2pix(nside, theta, phi, nest=True)
+    #     stds_tbl["HEALPIX"] = hpx
+    #     keep_stds = np.isin(hpx, pixlist)
+    #     keep_cols = tbl.colnames
 
-        if using_qso_target:
-            stds_tbl["QSO_TARGET"] = 0
-        if using_lbg_target:
-            stds_tbl["LBG_TARGET"] = 0
-        if using_xlg_target:
-            stds_tbl["XLG_TARGET"] = 0
-        tbl = vstack([stds_tbl[keep_stds][keep_cols], tbl])
+    #     if using_qso_target:
+    #         stds_tbl["QSO_TARGET"] = 0
+    #     if using_lbg_target:
+    #         stds_tbl["LBG_TARGET"] = 0
+    #     if using_xlg_target:
+    #         stds_tbl["XLG_TARGET"] = 0
+    #     tbl = vstack([stds_tbl[keep_stds][keep_cols], tbl])
 
     if targetmask is None:
         targetmask = load_target_yaml("targetmask.yaml")
 
     # Various afterburner / target parameters we don't care about too much
     # because we don't have actual spectra, just target positions,
+    # TODO Since we don't use desitarget for udpates anymore, do we actually need these? Is it just adding bulk?
     tbl["PMRA"] = 0.0
     tbl["PMDEC"] = 0.0
     tbl["REF_EPOCH"] = 0.0
@@ -364,7 +399,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     tbl["DELTACHI2"] = -1.0
 
     tbl["TIMESTAMP"] = timestamp
-    tbl["VERSION"] = "0.0.1" # TODO make this the simassign version.
+    tbl["VERSION"] = simassign_version
 
     for c in mtl_cols:
         assert c in tbl.colnames, f"{c} not found in cols!"
@@ -373,6 +408,7 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
     for target in targetmask["desi_mask"]:
         bit = 2**target[1]
         name = target[0]
+        if name in CALIB_TARGS: continue
         this_target = (tbl["DESI_TARGET"] & bit) != 0
 
         log.details(f"Init Target {target} {np.sum(this_target)}")
@@ -427,21 +463,28 @@ def initialize_mtl(base_tbl, save_dir=None, stds_tbl=None, return_mtl_all=True,
 
     if save_dir is not None:
         base_dir = Path(save_dir)
-        if (base_dir / "hp").exists(): shutil.rmtree((base_dir / "hp")) # Removes an old run in the same dir.
-        hp_base = base_dir / "hp" / "main" / "dark"
+        hp_base = base_dir / "hp" / "main" / program.lower()
+        if hp_base.exists(): shutil.rmtree(hp_base) # Removes an old run in the same dir.
         hp_base.mkdir(parents=True, exist_ok=True)
 
     if as_dict:
         tbl.sort(["HEALPIX", "TARGETID"]) # This will make the next line slightly quicker... I think.
-        mtl_all = {}
-        for hpx in pixlist:
-            mtl_all[hpx] = tbl[tbl["HEALPIX"] == hpx]
-            # mtl_all[hpx].sort("TARGETID")
 
-            log.details(f"Generated {hpx}")
-            fname =  f"mtl-dark-hp-{hpx}.ecsv"
-            if save_dir is not None:
-                mtl_all[hpx].write(hp_base / fname, overwrite=True) # Keep the original file extension.
+        # If the table is sorted, then the number of appearances of each
+        # healpixel can be used to construct slices of the table, which avoids
+        # the costly equivalency check for every healpixel. This should also
+        # be relatively invariant to input table size unlike the orignal comparison method.
+        pixlist, c = np.unique_counts(tbl["HEALPIX"])
+        c = np.concatenate([[0], c])
+        spacings = np.cumsum(c)
+        log.details("Generating mtl_all dictionary...")
+        mtl_all = {h: tbl[s_start:s_end] for h, s_start, s_end in zip(pixlist, spacings[:-1], spacings[1:])}
+        log.details("Dictionary complete.")
+
+        if save_dir is not None:
+            for hpx in pixlist:
+                fname =  f"mtl-{program.lower()}-hp-{hpx}.ecsv"
+                mtl_all[hpx].write(hp_base / fname, overwrite=True)
                 log.details(f"Saved to {str(hp_base / fname)}")
 
     # Want the global MTL sorted on TARGETID too.
