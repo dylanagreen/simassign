@@ -4,14 +4,14 @@ from astropy.table import Table
 import numpy as np
 
 # simassign imports
-from simassign.util import check_in_survey_area
+from simassign.util import check_in_survey_area, check_targets_in_survey_healpix
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-o", "--out", required=True, type=str, help="where to save the resulting file.")
 parser.add_argument("--seed", required=False, type=int, default=91701, help="seed for the random subsampling.")
 parser.add_argument("--density", required=False, type=int, default=1200, help="output density in n_targ per sq deg.")
 parser.add_argument("--survey", type=str, default=None, help="use the survey defined by the boundaries in this file rather than the full sky.")
-parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalo, default: 1.")
+parser.add_argument("--desitarget", required=False, type=int, default=1, help="desitarget bit value encode into the catalog, default: 1.")
 parser.add_argument("--program", required=False, type=str, default="DARK", help="program to encode in table metadata.")
 args = parser.parse_args()
 
@@ -37,7 +37,11 @@ if args.survey is not None:
     except ValueError: # Survey is multiple polygons and was saved as an object array.
         survey = np.load(args.survey, allow_pickle=True)
         survey = [s for s in survey] # Converts the ragged numpy array to list of numpy arrays.
-    in_survey = check_in_survey_area(data_tbl, survey)
+
+    if survey.shape[-1] != 2:
+        in_survey = check_targets_in_survey_healpix(data_tbl, survey)
+    else:
+        in_survey = check_in_survey_area(data_tbl, survey)
 
     data_tbl[in_survey].write(args.out, overwrite=True)
 else:
